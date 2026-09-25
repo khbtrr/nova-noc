@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useQuery } from '@tanstack/react-query';
 import { metricsApi } from '@/services/metricsApi';
+import { formatLocalTime } from '@/lib/utils';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Activity, Clock } from 'lucide-react';
 
@@ -12,7 +13,7 @@ interface HistoricalChartProps {
 
 export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }) => {
   const [timeRange, setTimeRange] = useState('1h');
-  const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'memory' | 'traffic'>('cpu');
+  const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'memory' | 'traffic' | 'latency' | 'packet_loss'>('cpu');
 
   const { data: metricsHistory, isLoading } = useQuery({
     queryKey: ['metrics-history', deviceId, timeRange],
@@ -25,11 +26,13 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
     if (metricsHistory && Array.isArray((metricsHistory as any).timestamps)) {
       const hist = metricsHistory as any;
       return hist.timestamps.map((t: string, idx: number) => ({
-        time: t,
+        time: formatLocalTime(t, false),
         cpu: hist.cpu?.[idx] ?? 0,
         memory: hist.memory?.[idx] ?? 0,
-        rx: hist.rx?.[idx] ?? 0,
-        tx: hist.tx?.[idx] ?? 0,
+        rx: Number((Number(hist.rx?.[idx] ?? 0) / 1000).toFixed(2)),
+        tx: Number((Number(hist.tx?.[idx] ?? 0) / 1000).toFixed(2)),
+        latency: hist.latency?.[idx] ?? 0,
+        packet_loss: hist.packet_loss?.[idx] ?? 0,
       }));
     }
 
@@ -52,8 +55,20 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
     traffic: {
       dataKey: 'rx',
       color: '#10b981',
-      unit: ' Kbps',
-      label: 'Traffic Bandwidth',
+      unit: ' Mbps',
+      label: 'Trafik Bandwidth',
+    },
+    latency: {
+      dataKey: 'latency',
+      color: '#f59e0b',
+      unit: ' ms',
+      label: 'Latensi ICMP (RTT)',
+    },
+    packet_loss: {
+      dataKey: 'packet_loss',
+      color: '#ef4444',
+      unit: '%',
+      label: 'Packet Loss',
     },
   }[selectedMetric];
 
@@ -100,6 +115,24 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
             >
               Bandwidth
             </button>
+            <button
+              type="button"
+              onClick={() => setSelectedMetric('latency')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                selectedMetric === 'latency' ? 'bg-amber-500/20 text-amber-400 font-medium' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Latensi
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedMetric('packet_loss')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                selectedMetric === 'packet_loss' ? 'bg-red-500/20 text-red-400 font-medium' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Packet Loss
+            </button>
           </div>
 
           {/* Time Range Selector */}
@@ -124,7 +157,7 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
         {chartData.length > 0 ? (
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="metricGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={metricConfig.color} stopOpacity={0.4} />
@@ -133,7 +166,14 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                 <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis 
+                  stroke="#64748b" 
+                  fontSize={11} 
+                  tickLine={false} 
+                  axisLine={false}
+                  tickFormatter={(value) => `${value}${metricConfig.unit}`}
+                  width={65}
+                />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: '#0f172a',

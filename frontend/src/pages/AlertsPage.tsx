@@ -33,6 +33,13 @@ export default function AlertsPage() {
     deleteRule,
   } = useAlerts();
 
+  const getMetricUnit = (metricName: string) => {
+    if (metricName.includes('latency')) return ' ms';
+    if (metricName.includes('kbps')) return ' Kbps';
+    if (metricName.includes('loss') || metricName.includes('usage') || metricName.includes('load')) return '%';
+    return '';
+  };
+
   const handleCreateRule = (e: React.FormEvent) => {
     e.preventDefault();
     createRule({
@@ -250,10 +257,10 @@ export default function AlertsPage() {
                     </div>
                     <div className="text-xs text-slate-400 mt-1 flex gap-4">
                       <span>
-                        Warning: <strong className="text-amber-400">&ge; {rule.warning_threshold}%</strong>
+                        Warning: <strong className="text-amber-400">&ge; {rule.warning_threshold}{getMetricUnit(rule.metric_name)}</strong>
                       </span>
                       <span>
-                        Critical: <strong className="text-red-400">&ge; {rule.critical_threshold}%</strong>
+                        Critical: <strong className="text-red-400">&ge; {rule.critical_threshold}{getMetricUnit(rule.metric_name)}</strong>
                       </span>
                       <span>Target: {rule.device_id ? `Perangkat #${rule.device_id}` : 'Global (Semua)'}</span>
                     </div>
@@ -304,10 +311,14 @@ export default function AlertsPage() {
                 onChange={(e) => setNewRule({ ...newRule, metric_name: e.target.value })}
                 className="w-full mt-1 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200"
               >
-                <option value="cpu_load">CPU Load (cpu_load)</option>
-                <option value="memory_usage">RAM Usage (memory_usage)</option>
-                <option value="rx_kbps">Trafik Download / RX (rx_kbps)</option>
-                <option value="tx_kbps">Trafik Upload / TX (tx_kbps)</option>
+                <option value="cpu_load">CPU Load (cpu_load) - %</option>
+                <option value="memory_usage">RAM Usage (memory_usage) - %</option>
+                <option value="rx_kbps">Trafik Download / RX (rx_kbps) - Kbps</option>
+                <option value="tx_kbps">Trafik Upload / TX (tx_kbps) - Kbps</option>
+                <option value="latency_ms">Latensi ICMP Server-to-Device (latency_ms) - ms</option>
+                <option value="packet_loss">Packet Loss Server-to-Device (packet_loss) - %</option>
+                <option value="wan_latency_ms">Latensi Internet Gateway (wan_latency_ms) - ms</option>
+                <option value="wan_packet_loss">Packet Loss Internet Gateway (wan_packet_loss) - %</option>
               </select>
             </div>
 

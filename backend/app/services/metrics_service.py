@@ -18,11 +18,23 @@ def update_device_snapshot(device_id: int, data: Dict[str, Any]):
         _history_buffer[device_id] = []
     
     point = {
-        "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "cpu": float(data.get("cpu_load", 0.0) or 0.0),
         "memory": float(data.get("memory_usage", 0.0) or 0.0),
         "rx_kbps": float(data.get("rx_kbps", 0.0) or 0.0),
         "tx_kbps": float(data.get("tx_kbps", 0.0) or 0.0),
+        "latency_ms": float(data.get("latency_ms", 0.0) or 0.0),
+        "packet_loss": float(data.get("packet_loss", 0.0) or 0.0),
+        "wan_latency_ms": float(data.get("wan_latency_ms", 0.0) or 0.0),
+        "wan_packet_loss": float(data.get("wan_packet_loss", 0.0) or 0.0),
+        "jlm_latency_ms": float(data.get("jlm_latency_ms", 0.0) or 0.0),
+        "jlm_packet_loss": float(data.get("jlm_packet_loss", 0.0) or 0.0),
+        "jlm_rx_mbps": float(data.get("jlm_rx_mbps", 0.0) or 0.0),
+        "jlm_tx_mbps": float(data.get("jlm_tx_mbps", 0.0) or 0.0),
+        "ion_latency_ms": float(data.get("ion_latency_ms", 0.0) or 0.0),
+        "ion_packet_loss": float(data.get("ion_packet_loss", 0.0) or 0.0),
+        "ion_rx_mbps": float(data.get("ion_rx_mbps", 0.0) or 0.0),
+        "ion_tx_mbps": float(data.get("ion_tx_mbps", 0.0) or 0.0),
     }
     _history_buffer[device_id].append(point)
     if len(_history_buffer[device_id]) > 60:
@@ -70,22 +82,42 @@ def get_metrics_history(device_id: int, range_str: str = "1h") -> Dict[str, Any]
         memory = [p["memory"] for p in buffer]
         rx = [p.get("rx_kbps", 0.0) for p in buffer]
         tx = [p.get("tx_kbps", 0.0) for p in buffer]
+        latency = [p.get("latency_ms", 0.0) for p in buffer]
+        packet_loss = [p.get("packet_loss", 0.0) for p in buffer]
+        wan_latency = [p.get("wan_latency_ms", 0.0) for p in buffer]
+        wan_packet_loss = [p.get("wan_packet_loss", 0.0) for p in buffer]
+        jlm_latency = [p.get("jlm_latency_ms", 0.0) for p in buffer]
+        jlm_packet_loss = [p.get("jlm_packet_loss", 0.0) for p in buffer]
+        ion_latency = [p.get("ion_latency_ms", 0.0) for p in buffer]
+        ion_packet_loss = [p.get("ion_packet_loss", 0.0) for p in buffer]
         return {
             "device_id": device_id,
             "timestamps": timestamps,
             "cpu": cpu,
             "memory": memory,
             "rx": rx,
-            "tx": tx
+            "tx": tx,
+            "latency": latency,
+            "packet_loss": packet_loss,
+            "wan_latency": wan_latency,
+            "wan_packet_loss": wan_packet_loss,
+            "jlm_latency": jlm_latency,
+            "jlm_packet_loss": jlm_packet_loss,
+            "ion_latency": ion_latency,
+            "ion_packet_loss": ion_packet_loss
         }
 
     # Generate realistic historical trend for chart display if no history yet
-    now = datetime.now()
-    timestamps = [(now - timedelta(minutes=i*2)).strftime("%H:%M") for i in range(20, -1, -1)]
+    now = datetime.now(timezone.utc)
+    timestamps = [(now - timedelta(minutes=(20 - i)*2)).isoformat() for i in range(21)]
     cpu_trend = [15.0 + (i % 7) * 3.5 for i in range(21)]
     mem_trend = [40.0 + (i % 4) * 2.0 for i in range(21)]
     rx_trend = [1200.0 + (i % 5) * 450.0 for i in range(21)]
     tx_trend = [850.0 + (i % 6) * 320.0 for i in range(21)]
+    latency_trend = [5.0 + (i % 4) * 1.2 for i in range(21)]
+    loss_trend = [0.0 for _ in range(21)]
+    wan_latency_trend = [14.0 + (i % 5) * 1.5 for i in range(21)]
+    wan_loss_trend = [0.0 for _ in range(21)]
 
     return {
         "device_id": device_id,
@@ -93,7 +125,11 @@ def get_metrics_history(device_id: int, range_str: str = "1h") -> Dict[str, Any]
         "cpu": cpu_trend,
         "memory": mem_trend,
         "rx": rx_trend,
-        "tx": tx_trend
+        "tx": tx_trend,
+        "latency": latency_trend,
+        "packet_loss": loss_trend,
+        "wan_latency": wan_latency_trend,
+        "wan_packet_loss": wan_loss_trend
     }
 
 def get_device_interfaces(device_id: int) -> List[Dict[str, Any]]:

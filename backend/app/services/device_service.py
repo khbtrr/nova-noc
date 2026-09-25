@@ -69,19 +69,43 @@ async def test_device_connection(device: Device) -> DeviceTestResult:
     host = device.host
     port = device.port or (8728 if device.device_type == DeviceType.MIKROTIK else 161)
     
+    if device.device_type == DeviceType.SNMP:
+        try:
+            from pysnmp.hlapi.asyncio import (
+                get_cmd, SnmpEngine, CommunityData, UdpTransportTarget,
+                ContextData, ObjectType, ObjectIdentity
+            )
+            community_str = device.snmp_community or 'public'
+            mp_model = 0 if (device.snmp_version and '1' in device.snmp_version) else 1
+            community = CommunityData(community_str, mpModel=mp_model)
+            target = await UdpTransportTarget.create((host, port), timeout=3.0, retries=1)
+            err_ind, err_stat, err_idx, var_binds = await get_cmd(
+                SnmpEngine(), community, target, ContextData(),
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.1.1.0'))
+            )
+            if err_ind or err_stat:
+                return DeviceTestResult(
+                    success=False,
+                    message=f"SNMP tidak merespon: {err_ind or err_stat}. Periksa Community '{community_str}' dan Port {port}.",
+                    details={"host": host, "port": port, "device_type": device.device_type.value}
+                )
+            descr = var_binds[0][1].prettyPrint() if var_binds else "SNMP Respon OK"
+            return DeviceTestResult(
+                success=True,
+                message=f"Koneksi SNMP berhasil! Teridentifikasi: {descr}",
+                details={"host": host, "port": port, "device_type": device.device_type.value, "sysDescr": descr}
+            )
+        except Exception as e:
+            return DeviceTestResult(
+                success=False,
+                message=f"Gagal koneksi SNMP ke {host}: {str(e)}",
+                details={"host": host, "port": port, "device_type": device.device_type.value}
+            )
+
     def check_socket():
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(3.0)
         try:
-            # For UDP like SNMP, SOCK_DGRAM check
-            if device.device_type == DeviceType.SNMP:
-                udp_s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                udp_s.settimeout(3.0)
-                udp_s.connect((host, port))
-                udp_s.close()
-                return True, f"SNMP port {port} on {host} is reachable via UDP"
-            
-            # TCP check (MikroTik API, etc.)
             result = s.connect_ex((host, port))
             s.close()
             if result == 0:

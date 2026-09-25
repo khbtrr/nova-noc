@@ -23,6 +23,23 @@ export interface SingleDeviceAnalysisResponse {
   analysis: string;
 }
 
+export interface TrafficAnomaly {
+  id: string;
+  device_id: number;
+  device_name: string;
+  type: 'TRAFFIC_SPIKE' | 'TRAFFIC_DROP';
+  severity: 'WARNING' | 'CRITICAL';
+  current_mbps: number;
+  rx_mbps?: number;
+  tx_mbps?: number;
+  baseline_mbps: number;
+  deviation_percent: number;
+  reason: string;
+  detected_at: string;
+  status: 'ACTIVE' | 'RESOLVED';
+  rca_analysis?: string;
+}
+
 export const aiApi = {
   analyzeNetwork: async (): Promise<NetworkAnalysisResponse> => {
     const res = await api.post('/ai/analyze');
@@ -42,5 +59,21 @@ export const aiApi = {
   getHealthScores: async (): Promise<{ overall_health_score: number; devices: DeviceHealth[]; recommendations: string[] }> => {
     const res = await api.get('/ai/health-score');
     return res.data;
+  },
+
+  getActiveAnomalies: async (): Promise<TrafficAnomaly[]> => {
+    const res = await api.get('/ai/anomalies/active');
+    return res.data;
+  },
+
+  getAnomalyHistory: async (): Promise<TrafficAnomaly[]> => {
+    const res = await api.get('/ai/anomalies/history');
+    return res.data;
+  },
+
+  resolveAnomaly: async (deviceId: number): Promise<{ success: boolean; message: string }> => {
+    const res = await api.post(`/ai/anomalies/${deviceId}/resolve`);
+    return res.data;
   }
 };
+

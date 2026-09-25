@@ -202,3 +202,51 @@ async def chat(message: str, context: Optional[str] = None) -> str:
         return "Rekomendasi umum penguatan NOC NOVA:\n- Aktifkan interval polling 30 detik untuk router gateway.\n- Pasang bot Telegram untuk notifikasi instan ketika terjadi spike CPU >85%.\n- Jadwalkan backup konfigurasi otomatis mingguan."
     else:
         return f"Saya NOVA AI Assistant siap membantu Anda memantau dan mengelola infrastruktur jaringan. Anda dapat menanyakan tentang status perangkat, panduan troubleshooting router MikroTik/SNMP, atau analisis metrik traffic. Ada yang spesifik ingin diinvestigasi mengenai pertanyaan Anda: \"{message}\"?"
+
+async def analyze_traffic_anomaly(
+    device_name: str,
+    anomaly_type: str,
+    severity: str,
+    current_mbps: float,
+    baseline_mbps: float,
+    deviation_percent: float,
+    interfaces: List[Dict[str, Any]] = []
+) -> str:
+    """Analyze a detected traffic anomaly and return a concise, actionable RCA."""
+    top_ifaces = [f"{i.get('name')} (rx: {i.get('rx_bytes', 0)}, tx: {i.get('tx_bytes', 0)})" for i in interfaces[:5]]
+    iface_str = ", ".join(top_ifaces) if top_ifaces else "Tidak ada data interface spesifik"
+
+    prompt = f"""Sebagai AI spesialis NOC, berikan analisis akar masalah (Root Cause Analysis - RCA) singkat dan terstruktur untuk insiden anomali trafik berikut:
+- Perangkat: {device_name}
+- Tipe Anomali: {anomaly_type} ({severity})
+- Throughput Terdeteksi: {current_mbps} Mbps
+- Rata-rata Baseline: {baseline_mbps} Mbps (Deviasi: {deviation_percent}%)
+- Interface Terkait: {iface_str}
+
+Format respons dengan 3 poin singkat:
+1. **Dugaan Akar Masalah (RCA)**: Kemungkinan penyebab utama lonjakan/drop.
+2. **Dampak Operasional**: Pengaruhnya terhadap jaringan klien/layanan.
+3. **Tindakan Mitigasi Cepat**: 2-3 langkah praktis yang harus segera dilakukan operator NOC."""
+
+    ai_res = await asyncio.to_thread(_generate_with_gemini, prompt)
+    if ai_res:
+        return ai_res.strip()
+
+    # Heuristic fallback if Gemini API is unavailable
+    if anomaly_type == "TRAFFIC_SPIKE":
+        return (
+            f"1. **Dugaan Akar Masalah (RCA)**: Lonjakan throughput drastis ke {current_mbps} Mbps kemungkinan disebabkan oleh streaming/download massal, backup terjadwal, atau anomali flooding paket UDP/ICMP pada interface WAN.\n"
+            f"2. **Dampak Operasional**: Potensi saturasi link uplink yang memicu peningkatan latensi RTT dan antrean paket (bufferbloat) bagi segmen VLAN lainnya.\n"
+            f"3. **Tindakan Mitigasi Cepat**:\n"
+            f"   - Periksa `/tool torch` pada interface utama untuk mengidentifikasi IP sumber/tujuan dengan konsumsi bandwidth tertinggi.\n"
+            f"   - Batasi sementara rate queue klien terkait atau terapkan drop rule jika terindikasi malicious flooding."
+        )
+    else:
+        return (
+            f"1. **Dugaan Akar Masalah (RCA)**: Penurunan trafik mendadak ke {current_mbps} Mbps (>80% di bawah baseline) mengindikasikan putusnya link uplink ISP, kegagalan rute default gateway (0.0.0.0/0), atau flapping pada interface trunk utama.\n"
+            f"2. **Dampak Operasional**: Gangguan akses internet menyeluruh (blackout/outage) bagi seluruh host dan VLAN yang bergantung pada gateway ini.\n"
+            f"3. **Tindakan Mitigasi Cepat**:\n"
+            f"   - Periksa status fisik dan negosiasi link port WAN (`running=true`).\n"
+            f"   - Lakukan uji ICMP ping ke gateway ISP dan server DNS publik (8.8.8.8).\n"
+            f"   - Periksa tabel routing `/ip route print` untuk memastikan status default gateway reachable."
+        )

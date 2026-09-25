@@ -56,14 +56,40 @@ export default function DeviceCard({ device }: DeviceCardProps) {
   const mem = metrics?.memory_usage ?? device.memory_usage;
   const uptime = metrics?.uptime ?? device.uptime ?? '-';
 
+  const latency = metrics?.latency_ms;
+  const packetLoss = metrics?.packet_loss;
+  const wanLatency = metrics?.wan_latency_ms;
+
   const isOnline = statusStr === 'ONLINE';
   const isWarning = statusStr === 'WARNING';
   const isOffline = statusStr === 'OFFLINE';
 
+  const getLatencyColor = (val?: number) => {
+    if (val == null) return 'text-slate-400';
+    if (val < 30) return 'text-emerald-400';
+    if (val < 80) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
+  const getLossColor = (loss?: number) => {
+    if (loss == null) return 'text-slate-400';
+    if (loss === 0) return 'text-emerald-400';
+    if (loss < 5) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
   return (
     <Card 
-      className="border-slate-800 bg-slate-900/50 backdrop-blur-xl hover:border-cyan-500/50 cursor-pointer transition-all hover:scale-[1.01]"
+      role="button"
+      tabIndex={0}
+      className="border-slate-800 bg-slate-900/50 backdrop-blur-xl hover:border-cyan-500/50 cursor-pointer transition-all hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
       onClick={() => navigate(`/devices/${device.id}`)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          navigate(`/devices/${device.id}`);
+        }
+      }}
     >
       <CardContent className="p-4">
         <div className="flex justify-between items-start mb-3">
@@ -99,6 +125,30 @@ export default function DeviceCard({ device }: DeviceCardProps) {
             color={mem && mem > 85 ? 'stroke-red-500' : 'stroke-purple-400'} 
             label="RAM Usage" 
           />
+        </div>
+
+        {/* Latency & Link Quality SLA Bar */}
+        <div className="flex items-center justify-between bg-slate-950/40 px-2.5 py-1.5 rounded-lg border border-slate-800/60 text-xs mb-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-400">Ping RTT:</span>
+            <span className={cn("font-mono font-medium text-[11px]", getLatencyColor(latency))}>
+              {latency != null ? `${latency.toFixed(1)} ms` : '-'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-400">Loss:</span>
+            <span className={cn("font-mono font-medium text-[11px]", getLossColor(packetLoss))}>
+              {packetLoss != null ? `${packetLoss.toFixed(1)}%` : '0%'}
+            </span>
+          </div>
+          {wanLatency != null && (
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-slate-400">WAN:</span>
+              <span className={cn("font-mono text-[10px]", getLatencyColor(wanLatency))}>
+                {wanLatency.toFixed(0)}ms
+              </span>
+            </div>
+          )}
         </div>
         
         <div className="flex justify-between items-center text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">

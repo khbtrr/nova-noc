@@ -36,3 +36,50 @@ export function formatDate(dateString: string) {
     minute: '2-digit',
   }).format(date)
 }
+
+export function formatLocalTime(timestamp: string, includeSeconds = true): string {
+  if (!timestamp) return '';
+
+  // 1. If it's an ISO 8601 string or full date string (contains 'T' or '-')
+  if (timestamp.includes('T') || timestamp.includes('-')) {
+    const d = new Date(timestamp);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        ...(includeSeconds ? { second: '2-digit' } : {}),
+        hour12: false,
+      });
+    }
+  }
+
+  // 2. If it's "HH:MM:SS" or "HH:MM" (treated as UTC from backend)
+  const parts = timestamp.split(':');
+  if (parts.length >= 2) {
+    const now = new Date();
+    const utcDate = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      parseInt(parts[0], 10),
+      parseInt(parts[1], 10),
+      parts[2] ? parseInt(parts[2], 10) : 0
+    ));
+    if (!isNaN(utcDate.getTime())) {
+      return utcDate.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        ...(includeSeconds ? { second: '2-digit' } : {}),
+        hour12: false,
+      });
+    }
+  }
+
+  return timestamp;
+}
+
+export function formatBandwidthMbps(kbps: number, decimals = 2): string {
+  if (!kbps || kbps <= 0) return '0 Mbps';
+  const mbps = kbps / 1000;
+  return `${mbps.toFixed(decimals)} Mbps`;
+}

@@ -15,18 +15,21 @@ logger = logging.getLogger("nova.topology")
 _cached_topology: Optional[Dict[str, Any]] = None
 _last_scan_time: Optional[datetime] = None
 
-def _classify_device_type(identity: str, platform: str, board: str) -> str:
-    """Classify device into wan, core, switch, or ap based on metadata."""
+def _classify_device_type(identity: str, platform: str, board: str, iface: str = "") -> str:
+    """Classify device into wan, core, switch, or ap based on metadata and port."""
     ident_lower = (identity or "").lower()
     plat_lower = (platform or "").lower()
     board_lower = (board or "").lower()
-    combined = f"{ident_lower} {plat_lower} {board_lower}"
+    iface_lower = (iface or "").lower()
+    combined = f"{ident_lower} {plat_lower} {board_lower} {iface_lower}"
 
+    if any(k in iface_lower for k in ["sfplus1-jlm", "ge1-ion", "wan", "jlm", "ion"]):
+        return "wan"
     if any(k in combined for k in ["uap", "u6-", "unifi", "apruang", "access point", "wifi", "wireless", "wap"]):
         return "ap"
     if any(k in combined for k in ["sw-", "switch", "cisco sg", "crs", "css", "edge-switch"]):
         return "switch"
-    if any(k in combined for k in ["isp", "uplink", "gateway", "yayasan", "telkom", "indosat", "ion", "rb5009"]):
+    if any(k in combined for k in ["isp", "uplink", "gateway", "yayasan", "telkom", "indosat", "ion", "jlm", "rb5009"]):
         return "wan"
     return "switch" if "crs" in board_lower else "device"
 
@@ -114,8 +117,35 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
                 board = str(n.get("board") or "")
                 iface = str(n.get("interface") or "")
 
-                dev_tier = _classify_device_type(identity, platform, board)
+                dev_tier = _classify_device_type(identity, platform, board, iface)
                 
+                # Check for JLM or ION specifically
+                if "jlm" in iface.lower() or "jlm" in identity.lower():
+                    dev_tier = "wan"
+                    node_id = "wan-isp-jlm"
+                    identity = "ISP JLM (Direct Fiber SFP+)"
+                    platform = "Provider JLM"
+                    board = "Direct SFP+ (10G)"
+                    address = "119.18.156.153"
+                    iface = "sfplus1-JLM"
+                elif "ion" in iface.lower() or "ion" in identity.lower() or "yayasan" in identity.lower() or "rb5009" in board.lower():
+                    dev_tier = "wan"
+                    node_id = "wan-isp-ion"
+                    identity = "ISP ION (Router RB5009)"
+                    platform = "Provider ION"
+                    board = "RB5009UG+S+"
+                    address = "210.79.164.65"
+                    iface = "ge1-ION"
+                else:
+                    safe_id = "".join(c if c.isalnum() else "_" for c in identity.strip() or f"n_{idx}")
+                    node_id = f"{dev_tier}-{safe_id}"
+                    if node_id in node_ids:
+                        node_id = f"{node_id}-{idx}"
+
+                if node_id in node_ids and dev_tier == "wan":
+                    continue
+                node_ids.add(node_id)
+
                 # Check if already monitored in DB
                 is_monitored = False
                 monitored_device_id = None
@@ -125,15 +155,6 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
                 elif identity.lower() in registered_names:
                     is_monitored = True
                     monitored_device_id = registered_names[identity.lower()].id
-
-                # Sanitize safe node id
-                safe_id = "".join(c if c.isalnum() else "_" for c in identity.strip() or f"n_{idx}")
-                node_id = f"{dev_tier}-{safe_id}"
-
-                if node_id in node_ids:
-                    # Append index if duplicate name
-                    node_id = f"{node_id}-{idx}"
-                node_ids.add(node_id)
 
                 neighbor_node = {
                     "id": node_id,
@@ -162,7 +183,7 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
                         "target": core_node_id,
                         "animated": True,
                         "label": iface,
-                        "style": {"stroke": "#06b6d4", "strokeWidth": 2}
+                        "style": {"stroke": "#06b6d4" if "jlm" in node_id else "#38bdf8", "strokeWidth": 2}
                     })
                 else:
                     tier_edge_nodes.append(neighbor_node)
@@ -176,6 +197,65 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
                         "style": {"stroke": "#38bdf8" if dev_tier == "switch" else "#a855f7", "strokeWidth": 1.5}
                     })
 
+            # Ensure both JLM and ION are present at Tier 1
+            has_jlm = any(n["id"] == "wan-isp-jlm" for n in tier_wan_nodes)
+            if not has_jlm:
+                jlm_node = {
+                    "id": "wan-isp-jlm",
+                    "type": "customTopology",
+                    "data": {
+                        "id": "wan-isp-jlm",
+                        "label": "ISP JLM (Direct Fiber SFP+)",
+                        "host": "119.18.156.153",
+                        "mac": "48:A9:8A:01:49:75",
+                        "tier": "wan",
+                        "device_type": "wan",
+                        "vendor": "Provider JLM",
+                        "board": "Direct SFP+ (10G Fiber)",
+                        "status": "ONLINE",
+                        "is_monitored": False,
+                        "interface": "sfplus1-JLM"
+                    }
+                }
+                tier_wan_nodes.append(jlm_node)
+                edges.append({
+                    "id": f"edge-wan-isp-jlm-{core_node_id}",
+                    "source": "wan-isp-jlm",
+                    "target": core_node_id,
+                    "animated": True,
+                    "label": "sfplus1-JLM (Fiber)",
+                    "style": {"stroke": "#06b6d4", "strokeWidth": 2}
+                })
+
+            has_ion = any(n["id"] == "wan-isp-ion" for n in tier_wan_nodes)
+            if not has_ion:
+                ion_node = {
+                    "id": "wan-isp-ion",
+                    "type": "customTopology",
+                    "data": {
+                        "id": "wan-isp-ion",
+                        "label": "ISP ION (Router RB5009)",
+                        "host": "210.79.164.65",
+                        "mac": "D0:EA:11:3E:AC:24",
+                        "tier": "wan",
+                        "device_type": "wan",
+                        "vendor": "Provider ION",
+                        "board": "RB5009UG+S+",
+                        "status": "ONLINE",
+                        "is_monitored": False,
+                        "interface": "ge1-ION"
+                    }
+                }
+                tier_wan_nodes.append(ion_node)
+                edges.append({
+                    "id": f"edge-wan-isp-ion-{core_node_id}",
+                    "source": "wan-isp-ion",
+                    "target": core_node_id,
+                    "animated": True,
+                    "label": "ge1-ION (Gigabit)",
+                    "style": {"stroke": "#38bdf8", "strokeWidth": 2}
+                })
+
         except Exception as e:
             logger.warning(f"Error scanning neighbors for device {dev.id}: {e}")
 
@@ -186,12 +266,19 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
 
     TOTAL_WIDTH = max(len(tier_edge_nodes) * 220, 1200)
 
-    # Place WAN nodes (Tier 1)
-    wan_count = max(len(tier_wan_nodes), 1)
-    wan_spacing = TOTAL_WIDTH / (wan_count + 1)
-    for i, n in enumerate(tier_wan_nodes):
-        n["position"] = {"x": round((i + 1) * wan_spacing - 100), "y": 60}
-        nodes.append(n)
+    # Place WAN nodes (Tier 1) side-by-side above Core Router
+    wan_count = len(tier_wan_nodes)
+    core_center_x = TOTAL_WIDTH / 2
+    if wan_count == 2:
+        tier_wan_nodes[0]["position"] = {"x": round(core_center_x - 220), "y": 60}
+        tier_wan_nodes[1]["position"] = {"x": round(core_center_x + 120), "y": 60}
+        for n in tier_wan_nodes:
+            nodes.append(n)
+    else:
+        wan_spacing = TOTAL_WIDTH / (max(wan_count, 1) + 1)
+        for i, n in enumerate(tier_wan_nodes):
+            n["position"] = {"x": round((i + 1) * wan_spacing - 100), "y": 60}
+            nodes.append(n)
 
     # Place Core nodes (Tier 2)
     core_count = max(len(tier_core_nodes), 1)

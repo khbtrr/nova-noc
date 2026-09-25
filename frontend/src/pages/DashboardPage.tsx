@@ -4,6 +4,7 @@ import DeviceCard from '@/components/dashboard/DeviceCard';
 import TrafficChart from '@/components/dashboard/TrafficChart';
 import AlertFeed from '@/components/dashboard/AlertFeed';
 import AIInsightPanel from '@/components/dashboard/AIInsightPanel';
+import DualWanPanel from '@/components/dashboard/DualWanPanel';
 import { HistoricalChart } from '@/components/dashboard/HistoricalChart';
 import { TopologyMap } from '@/components/dashboard/TopologyMap';
 import { useDevices } from '@/hooks/useDevices';
@@ -55,8 +56,11 @@ export default function DashboardPage() {
       
       {/* 1. Overview Summary Stats */}
       <OverviewPanel />
+
+      {/* 2. Dual-Provider Internet Telemetry */}
+      <DualWanPanel />
       
-      {/* 2. Device Status Cards */}
+      {/* 3. Device Status Cards */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Perangkat Jaringan Aktif</h3>

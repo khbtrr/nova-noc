@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { formatBytes } from '@/lib/utils';
+import { formatLocalTime } from '@/lib/utils';
 import { useDevices } from '@/hooks/useDevices';
 import { useQuery } from '@tanstack/react-query';
 import { metricsApi } from '@/services/metricsApi';
-import { ArrowDownUp } from 'lucide-react';
+import { aiApi } from '@/services/aiApi';
+import { ArrowDownUp, AlertTriangle } from 'lucide-react';
 
 export default function TrafficChart() {
   const { devices } = useDevices();
@@ -20,13 +21,21 @@ export default function TrafficChart() {
     refetchInterval: 15000,
   });
 
+  const { data: activeAnomalies = [] } = useQuery({
+    queryKey: ['active-anomalies'],
+    queryFn: () => aiApi.getActiveAnomalies(),
+    refetchInterval: 10000,
+  });
+
+  const currentAnomaly = activeAnomalies.find((a: any) => String(a.device_id) === String(activeDeviceId));
+
   const chartData = useMemo(() => {
     if (metricsHistory && Array.isArray((metricsHistory as any).timestamps)) {
       const hist = metricsHistory as any;
       return hist.timestamps.map((t: string, idx: number) => ({
-        time: t,
-        rx: Number(hist.rx?.[idx] ?? 0),
-        tx: Number(hist.tx?.[idx] ?? 0),
+        time: formatLocalTime(t, true),
+        rx: Number((Number(hist.rx?.[idx] ?? 0) / 1000).toFixed(2)),
+        tx: Number((Number(hist.tx?.[idx] ?? 0) / 1000).toFixed(2)),
       }));
     }
     return [];
@@ -43,28 +52,37 @@ export default function TrafficChart() {
             Trafik Bandwidth Real-Time
           </CardTitle>
           <CardDescription className="text-xs text-slate-400">
-            Monitoring throughput transmisi data RX/TX per detik
+            Monitoring throughput transmisi data RX/TX dalam Mbps
           </CardDescription>
         </div>
 
-        {devices && devices.length > 0 && (
-          <select
-            value={activeDeviceId}
-            onChange={(e) => setSelectedDeviceId(e.target.value)}
-            className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-          >
-            {devices.map((d: any) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({d.host || d.ip_address})
-              </option>
-            ))}
-          </select>
-        )}
+        <div className="flex items-center gap-3">
+          {currentAnomaly && (
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium animate-pulse">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>Anomali: {currentAnomaly.type === 'TRAFFIC_SPIKE' ? 'Lonjakan Trafik' : 'Drop Trafik'} ({currentAnomaly.deviation_percent > 0 ? `+${currentAnomaly.deviation_percent}%` : `${currentAnomaly.deviation_percent}%`})</span>
+            </div>
+          )}
+
+          {devices && devices.length > 0 && (
+            <select
+              value={activeDeviceId}
+              onChange={(e) => setSelectedDeviceId(e.target.value)}
+              className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            >
+              {devices.map((d: any) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.host || d.ip_address})
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="flex-1 p-4 flex flex-col justify-center">
         {hasData ? (
           <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorRx" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
@@ -79,12 +97,12 @@ export default function TrafficChart() {
               <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
               <YAxis 
                 axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}}
-                tickFormatter={(value) => formatBytes(value, 0)}
-                width={80}
+                tickFormatter={(value) => `${value} Mbps`}
+                width={70}
               />
               <Tooltip 
                 contentStyle={{backgroundColor: '#0f172a', borderColor: '#1e293b', fontSize: '12px'}}
-                formatter={(value: number) => [formatBytes(value) + '/s', undefined]}
+                formatter={(value: number) => [`${Number(value).toFixed(2)} Mbps`, undefined]}
               />
               <Area type="monotone" dataKey="rx" stroke="#06b6d4" strokeWidth={2} fillOpacity={1} fill="url(#colorRx)" name="RX (Download)" />
               <Area type="monotone" dataKey="tx" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTx)" name="TX (Upload)" />

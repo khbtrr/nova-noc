@@ -9,6 +9,8 @@ from app.models.device import Device, DeviceType, DeviceStatus
 from app.collectors.mikrotik_collector import MikrotikCollector
 from app.collectors.snmp_collector import SNMPCollector
 from app.services.alert_service import evaluate_metrics
+from app.services.anomaly_service import evaluate_traffic_anomaly
+from app.services.metrics_service import _history_buffer
 from app.notifications.websocket import manager
 
 logger = logging.getLogger("nova.scheduler")
@@ -37,6 +39,12 @@ async def poll_device(device_id: int):
                     device.last_seen = now
                     # Evaluate alerts
                     await evaluate_metrics(db, device.id, metrics)
+                    # NOVA Sight: Evaluate traffic anomalies with flapping suppression
+                    try:
+                        history_points = _history_buffer.get(device.id, [])
+                        await evaluate_traffic_anomaly(device.id, device.name, metrics, history_points)
+                    except Exception as sight_err:
+                        logger.warning(f"[NOVA Sight] Error evaluating anomaly for device {device.id}: {sight_err}")
                     # Broadcast real-time metrics update via WebSocket
                     ws_payload = json.dumps({
                         "event": "metrics_update",

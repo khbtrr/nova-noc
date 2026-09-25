@@ -29,10 +29,39 @@ export interface DeviceMetrics {
   version?: string;
   rx_kbps?: number;
   tx_kbps?: number;
+  latency_ms?: number;
+  packet_loss?: number;
+  wan_latency_ms?: number;
+  wan_packet_loss?: number;
+  min_rtt_ms?: number;
+  max_rtt_ms?: number;
+  jlm_latency_ms?: number;
+  jlm_packet_loss?: number;
+  jlm_rx_mbps?: number;
+  jlm_tx_mbps?: number;
+  jlm_status?: string;
+  ion_latency_ms?: number;
+  ion_packet_loss?: number;
+  ion_rx_mbps?: number;
+  ion_tx_mbps?: number;
+  ion_status?: string;
   current?: Metric;
   interfaces?: InterfaceTraffic[];
   dhcp_leases?: DHCPLease[];
   routes?: Route[];
+}
+
+export interface MetricsHistoryData {
+  device_id: number;
+  timestamps: string[];
+  cpu: number[];
+  memory: number[];
+  rx?: number[];
+  tx?: number[];
+  latency?: number[];
+  packet_loss?: number[];
+  wan_latency?: number[];
+  wan_packet_loss?: number[];
 }
 
 export interface DHCPLease {

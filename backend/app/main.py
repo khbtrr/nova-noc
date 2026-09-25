@@ -28,9 +28,21 @@ async def lifespan(app: FastAPI):
         await start_scheduler()
     except Exception as e:
         logger.warning(f"Scheduler could not start: {e}")
+
+    try:
+        from app.notifications.telegram_worker import start_telegram_worker, stop_telegram_worker
+        await start_telegram_worker()
+    except Exception as e:
+        logger.warning(f"Telegram worker could not start: {e}")
     
     yield
     
+    try:
+        from app.notifications.telegram_worker import stop_telegram_worker
+        await stop_telegram_worker()
+    except Exception as e:
+        logger.warning(f"Error stopping Telegram worker: {e}")
+
     try:
         stop_scheduler()
     except Exception as e:

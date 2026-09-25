@@ -113,3 +113,23 @@ async def get_health_scores(db: AsyncSession = Depends(get_db)):
         "devices": result["devices"],
         "recommendations": result["recommendations"]
     }
+
+@router.get("/anomalies/active")
+async def list_active_anomalies():
+    """Return all currently active traffic anomalies tracked by NOVA Sight."""
+    from app.services.anomaly_service import get_active_anomalies
+    return get_active_anomalies()
+
+@router.get("/anomalies/history")
+async def list_anomaly_history(limit: int = 20):
+    """Return recent historical traffic anomalies."""
+    from app.services.anomaly_service import get_anomaly_history
+    return get_anomaly_history(limit=limit)
+
+@router.post("/anomalies/{device_id}/resolve")
+async def resolve_device_anomaly(device_id: int):
+    """Manually mark an active anomaly as resolved."""
+    from app.services.anomaly_service import clear_anomaly
+    clear_anomaly(device_id)
+    return {"success": True, "message": f"Anomaly for device #{device_id} marked as resolved."}
+
