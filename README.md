@@ -177,7 +177,3 @@ Interactive API docs available at:
 ## 📋 License
 
 This project is proprietary software. All rights reserved.
-
----
-
-Built with ❤️ by the NOVA team
