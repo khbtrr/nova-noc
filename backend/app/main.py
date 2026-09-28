@@ -75,6 +75,17 @@ async def health_check():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+    
+    from app.core.security import decode_access_token
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=1008, reason="Invalid or expired token")
+        return
+
     await manager.connect(websocket)
     try:
         while True:
@@ -85,3 +96,4 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
     except Exception:
         manager.disconnect(websocket)
+

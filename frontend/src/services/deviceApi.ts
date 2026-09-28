@@ -1,5 +1,5 @@
 import { api } from './api';
-import { Device, CreateDeviceDTO } from '@/types/device';
+import { Device, CreateDeviceDTO, UpdateDeviceDTO } from '@/types/device';
 
 export const deviceApi = {
   getDevices: async (): Promise<Device[]> => {
@@ -7,7 +7,7 @@ export const deviceApi = {
     return res.data;
   },
   
-  getDevice: async (id: string): Promise<Device> => {
+  getDevice: async (id: string | number): Promise<Device> => {
     const res = await api.get(`/devices/${id}`);
     return res.data;
   },
@@ -17,7 +17,7 @@ export const deviceApi = {
     return res.data;
   },
   
-  updateDevice: async (id: string, data: Partial<Device>): Promise<Device> => {
+  updateDevice: async (id: string | number, data: UpdateDeviceDTO | Partial<Device>): Promise<Device> => {
     const res = await api.put(`/devices/${id}`, data);
     return res.data;
   },

@@ -5,9 +5,13 @@ import DeviceList from '@/components/devices/DeviceList';
 import AddDeviceModal from '@/components/devices/AddDeviceModal';
 import { useDevices } from '@/hooks/useDevices';
 
+import { useAuthStore } from '@/stores/authStore';
+
 export default function DevicesPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { devices, isLoading, refetch } = useDevices();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="space-y-6 pb-12">
@@ -31,15 +35,18 @@ export default function DevicesPage() {
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="bg-cyan-600 hover:bg-cyan-500 text-white font-medium"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Tambah Perangkat
-          </Button>
+          {isAdmin && (
+            <Button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="bg-cyan-600 hover:bg-cyan-500 text-white font-medium"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Tambah Perangkat
+            </Button>
+          )}
         </div>
       </div>
+
       
       <DeviceList devices={devices || []} />
 

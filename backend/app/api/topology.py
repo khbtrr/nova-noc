@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
-from app.core.dependencies import get_db
+from app.core.dependencies import get_db, get_current_user, require_admin
 from app.services.topology_service import scan_network_topology, promote_neighbor_to_device
 
 router = APIRouter()
@@ -17,13 +17,19 @@ class PromoteRequest(BaseModel):
     interface: Optional[str] = ""
 
 @router.get("")
-async def get_topology(db: AsyncSession = Depends(get_db)):
+async def get_topology(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     """Fetch current 3-tier network topology graph."""
     data = await scan_network_topology(db, force_refresh=False)
     return data
 
 @router.post("/scan")
-async def trigger_rescan(db: AsyncSession = Depends(get_db)):
+async def trigger_rescan(
+    db: AsyncSession = Depends(get_db),
+    admin = Depends(require_admin)
+):
     """Trigger active live scan from core router neighbor table."""
     data = await scan_network_topology(db, force_refresh=True)
     return {
@@ -33,7 +39,12 @@ async def trigger_rescan(db: AsyncSession = Depends(get_db)):
     }
 
 @router.post("/promote")
-async def promote_device(req: PromoteRequest, db: AsyncSession = Depends(get_db)):
+async def promote_device(
+    req: PromoteRequest,
+    db: AsyncSession = Depends(get_db),
+    admin = Depends(require_admin)
+):
+
     """Promote a discovered neighbor to monitored Device table."""
     try:
         dev = await promote_neighbor_to_device(db, req.model_dump())

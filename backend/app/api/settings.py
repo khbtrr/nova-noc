@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from app.config import settings
 from app.notifications.telegram import send_telegram_message
+from app.core.dependencies import get_current_user, require_admin
 
 router = APIRouter()
 
@@ -18,7 +19,7 @@ class TelegramTestRequest(BaseModel):
     message: Optional[str] = "🔔 Test notifikasi sistem NOVA NOC berhasil terkirim!"
 
 @router.get("")
-async def get_system_settings():
+async def get_system_settings(current_user = Depends(get_current_user)):
     return {
         "app_name": settings.APP_NAME,
         "default_poll_interval": settings.DEFAULT_POLL_INTERVAL,
@@ -29,7 +30,10 @@ async def get_system_settings():
     }
 
 @router.post("/test-telegram")
-async def test_telegram_notification(req: TelegramTestRequest):
+async def test_telegram_notification(
+    req: TelegramTestRequest,
+    admin = Depends(require_admin)
+):
     if not settings.TELEGRAM_BOT_TOKEN:
         raise HTTPException(status_code=400, detail="TELEGRAM_BOT_TOKEN belum diatur dalam file .env")
     if not settings.TELEGRAM_CHAT_ID:
@@ -39,3 +43,4 @@ async def test_telegram_notification(req: TelegramTestRequest):
     if not success:
         raise HTTPException(status_code=500, detail="Gagal mengirim pesan Telegram. Pastikan bot sudah di-start di Telegram (kirim /start ke bot) dan Chat ID valid.")
     return {"status": "ok", "message": "Pesan tes telah berhasil dikirimkan ke Telegram!"}
+

@@ -9,16 +9,7 @@ import { AlertTriangle, CheckCircle2, Bell } from 'lucide-react';
 export default function AlertFeed() {
   const { activeAlerts, acknowledgeAlert } = useAlerts();
 
-  const alerts = activeAlerts.length > 0 ? activeAlerts : [
-    {
-      id: 1,
-      device_name: 'MikroTik CCR2004',
-      severity: 'INFO',
-      message: 'Sistem monitoring NOVA NOC berhasil terhubung dan memantau interface real-time.',
-      created_at: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
-      is_acknowledged: false,
-    }
-  ];
+  const alerts = activeAlerts || [];
 
   const getSeverityStyle = (sev: string = 'INFO') => {
     const s = sev.toUpperCase();
@@ -41,8 +32,16 @@ export default function AlertFeed() {
         </div>
       </CardHeader>
       <CardContent className="flex-1 p-0">
+        {alerts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-[280px] text-center p-6 text-slate-500">
+            <CheckCircle2 className="h-8 w-8 text-emerald-500/40 mb-2" />
+            <p className="text-xs font-medium text-slate-400">Tidak ada alert aktif</p>
+            <p className="text-[11px] text-slate-600 mt-0.5">Seluruh parameter telemetri jaringan beroperasi normal</p>
+          </div>
+        ) : (
         <ScrollArea className="h-[280px] w-full">
           <div className="flex flex-col divide-y divide-slate-800/80">
+
             {alerts.map((alert: any) => {
               const timeStr = alert.created_at || alert.timestamp || new Date().toISOString();
               let relativeTime = 'baru saja';
@@ -94,7 +93,9 @@ export default function AlertFeed() {
             })}
           </div>
         </ScrollArea>
+        )}
       </CardContent>
     </Card>
   );
 }
+

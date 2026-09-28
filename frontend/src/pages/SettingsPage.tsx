@@ -8,8 +8,11 @@ import { settingsApi } from '@/services/settingsApi';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 import { Settings, Send, Bot, Shield, Server, CheckCircle2, AlertCircle } from 'lucide-react';
+import UserManagementCard from '@/components/settings/UserManagementCard';
+
 
 export default function SettingsPage() {
+
   const { user } = useAuthStore();
   const [testMessage, setTestMessage] = useState('🔔 Test notifikasi NOVA NOC: Bot Telegram siap digunakan!');
   const [isSendingTest, setIsSendingTest] = useState(false);
@@ -197,7 +200,11 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* 5. User Management (Admin Only) */}
+        {user?.role === 'admin' && <UserManagementCard />}
       </div>
     </div>
   );
 }
+

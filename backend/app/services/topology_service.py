@@ -197,67 +197,9 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
                         "style": {"stroke": "#38bdf8" if dev_tier == "switch" else "#a855f7", "strokeWidth": 1.5}
                     })
 
-            # Ensure both JLM and ION are present at Tier 1
-            has_jlm = any(n["id"] == "wan-isp-jlm" for n in tier_wan_nodes)
-            if not has_jlm:
-                jlm_node = {
-                    "id": "wan-isp-jlm",
-                    "type": "customTopology",
-                    "data": {
-                        "id": "wan-isp-jlm",
-                        "label": "ISP JLM (Direct Fiber SFP+)",
-                        "host": "119.18.156.153",
-                        "mac": "48:A9:8A:01:49:75",
-                        "tier": "wan",
-                        "device_type": "wan",
-                        "vendor": "Provider JLM",
-                        "board": "Direct SFP+ (10G Fiber)",
-                        "status": "ONLINE",
-                        "is_monitored": False,
-                        "interface": "sfplus1-JLM"
-                    }
-                }
-                tier_wan_nodes.append(jlm_node)
-                edges.append({
-                    "id": f"edge-wan-isp-jlm-{core_node_id}",
-                    "source": "wan-isp-jlm",
-                    "target": core_node_id,
-                    "animated": True,
-                    "label": "sfplus1-JLM (Fiber)",
-                    "style": {"stroke": "#06b6d4", "strokeWidth": 2}
-                })
-
-            has_ion = any(n["id"] == "wan-isp-ion" for n in tier_wan_nodes)
-            if not has_ion:
-                ion_node = {
-                    "id": "wan-isp-ion",
-                    "type": "customTopology",
-                    "data": {
-                        "id": "wan-isp-ion",
-                        "label": "ISP ION (Router RB5009)",
-                        "host": "210.79.164.65",
-                        "mac": "D0:EA:11:3E:AC:24",
-                        "tier": "wan",
-                        "device_type": "wan",
-                        "vendor": "Provider ION",
-                        "board": "RB5009UG+S+",
-                        "status": "ONLINE",
-                        "is_monitored": False,
-                        "interface": "ge1-ION"
-                    }
-                }
-                tier_wan_nodes.append(ion_node)
-                edges.append({
-                    "id": f"edge-wan-isp-ion-{core_node_id}",
-                    "source": "wan-isp-ion",
-                    "target": core_node_id,
-                    "animated": True,
-                    "label": "ge1-ION (Gigabit)",
-                    "style": {"stroke": "#38bdf8", "strokeWidth": 2}
-                })
-
         except Exception as e:
             logger.warning(f"Error scanning neighbors for device {dev.id}: {e}")
+
 
     # 3. Compute 3-Tier Layout Coordinates (X, Y)
     # Tier 1 (WAN / ISP Uplinks): Y = 60

@@ -33,10 +33,19 @@ async def _on_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         target = parts[3]
 
+        user_id = str(query.from_user.id)
         user_name = query.from_user.username or query.from_user.first_name or "NOC-Staff"
+
+        # Check authorization against TELEGRAM_ADMIN_IDS whitelist
+        admin_ids = [aid.strip() for aid in (settings.TELEGRAM_ADMIN_IDS or "").split(",") if aid.strip()]
+        if admin_ids and user_id not in admin_ids:
+            logger.warning(f"[NOVA Act] Unauthorized telegram user {user_id} (@{user_name}) attempted to execute {act_slug}")
+            await query.answer(text="⛔ Akses ditolak: Anda tidak memiliki wewenang eksekusi mitigasi NOC.", show_alert=True)
+            return
 
         # Acknowledge Telegram UI immediately
         await query.answer(text=f"Mengeksekusi mitigasi ({act_slug}) untuk perangkat #{device_id}...")
+
 
         # Action mapping
         action_map = {

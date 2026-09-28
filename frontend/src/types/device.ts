@@ -41,3 +41,18 @@ export interface CreateDeviceDTO {
   group?: string;
   location?: string;
 }
+
+export interface UpdateDeviceDTO {
+  name?: string;
+  host?: string;
+  device_type?: 'MIKROTIK' | 'SNMP' | DeviceType;
+  port?: number;
+  username?: string;
+  password?: string;
+  snmp_community?: string;
+  snmp_version?: string;
+  poll_interval?: number;
+  is_enabled?: boolean;
+  group?: string;
+  location?: string;
+}

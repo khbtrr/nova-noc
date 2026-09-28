@@ -10,16 +10,23 @@ from app.services.device_service import (
     delete_device,
     test_device_connection,
 )
-from app.core.dependencies import get_db, require_admin
+from app.core.dependencies import get_db, get_current_user, require_admin
 
 router = APIRouter()
 
 @router.get("", response_model=List[DeviceResponse])
-async def read_devices(db: AsyncSession = Depends(get_db)):
+async def read_devices(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     return await get_devices(db)
 
 @router.get("/{id}", response_model=DeviceResponse)
-async def read_device(id: int, db: AsyncSession = Depends(get_db)):
+async def read_device(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     return await get_device(db, id)
 
 @router.post("", response_model=DeviceResponse)
@@ -36,6 +43,11 @@ async def remove_device(id: int, db: AsyncSession = Depends(get_db), admin = Dep
     return {"detail": "Device deleted"}
 
 @router.post("/{id}/test", response_model=DeviceTestResult)
-async def test_device(id: int, db: AsyncSession = Depends(get_db)):
+async def test_device(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+    admin = Depends(require_admin)
+):
     device = await get_device(db, id)
     return await test_device_connection(device)
+

@@ -52,17 +52,18 @@ export const useAI = () => {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setChatMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      // Local fallback simulation if backend is offline
-      const fallbackAi = {
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Gagal mengirim pesan ke AI Assistant.');
+      const errorAi = {
         sender: 'ai' as const,
-        text: `Berdasarkan analisis telemetri lokal: status perangkat beroperasi normal. Untuk troubleshooting mendalam atau pengujian port spesifik, pastikan koneksi backend aktif.`,
+        text: `⚠️ Maaf, gagal menghubungi layanan AI. Pastikan server backend aktif dan kunci API Gemini telah dikonfigurasi dengan benar.`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
-      setChatMessages((prev) => [...prev, fallbackAi]);
+      setChatMessages((prev) => [...prev, errorAi]);
     } finally {
       setIsSending(false);
     }
+
   };
 
   return {

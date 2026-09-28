@@ -16,27 +16,38 @@ export default function DualWanPanel({ deviceId }: DualWanPanelProps) {
   // Default to first MikroTik device if deviceId not provided
   const targetDevice = deviceId 
     ? devices?.find((d: any) => String(d.id) === String(deviceId))
-    : devices?.find((d: any) => d.device_type === 'MIKROTIK');
+    : devices?.find((d: any) => String(d.device_type).toUpperCase() === 'MIKROTIK');
 
-  const resolvedId = targetDevice?.id ? String(targetDevice.id) : '5';
+  const resolvedId = targetDevice?.id ? String(targetDevice.id) : '';
 
   const { data: metrics } = useQuery({
     queryKey: ['metrics', resolvedId],
     queryFn: () => metricsApi.getMetrics(resolvedId),
+    enabled: Boolean(resolvedId),
     refetchInterval: 10000,
   });
 
-  const jlmLatency = metrics?.jlm_latency_ms != null ? `${metrics.jlm_latency_ms.toFixed(1)} ms` : '< 1 ms';
-  const jlmLoss = metrics?.jlm_packet_loss != null ? `${metrics.jlm_packet_loss.toFixed(0)}%` : '0%';
-  const jlmRx = metrics?.jlm_rx_mbps != null ? `${metrics.jlm_rx_mbps.toFixed(2)} Mbps` : '0.00 Mbps';
-  const jlmTx = metrics?.jlm_tx_mbps != null ? `${metrics.jlm_tx_mbps.toFixed(2)} Mbps` : '0.00 Mbps';
-  const jlmStatus = (metrics?.jlm_status || 'UP').toUpperCase();
+  if (!targetDevice) {
+    return (
+      <div className="p-4 rounded-lg border border-slate-800 bg-slate-900/40 text-center text-slate-500 text-xs">
+        Belum ada router MikroTik terdaftar untuk monitoring Dual-WAN.
+      </div>
+    );
+  }
 
-  const ionLatency = metrics?.ion_latency_ms != null ? `${metrics.ion_latency_ms.toFixed(1)} ms` : '< 1 ms';
-  const ionLoss = metrics?.ion_packet_loss != null ? `${metrics.ion_packet_loss.toFixed(0)}%` : '0%';
-  const ionRx = metrics?.ion_rx_mbps != null ? `${metrics.ion_rx_mbps.toFixed(2)} Mbps` : '0.00 Mbps';
-  const ionTx = metrics?.ion_tx_mbps != null ? `${metrics.ion_tx_mbps.toFixed(2)} Mbps` : '0.00 Mbps';
-  const ionStatus = (metrics?.ion_status || 'UP').toUpperCase();
+  const hasMetrics = Boolean(metrics && (metrics.jlm_status || metrics.ion_status || metrics.wan_latency_ms != null));
+  const jlmLatency = metrics?.jlm_latency_ms != null ? `${metrics.jlm_latency_ms.toFixed(1)} ms` : '-';
+  const jlmLoss = metrics?.jlm_packet_loss != null ? `${metrics.jlm_packet_loss.toFixed(0)}%` : '-';
+  const jlmRx = metrics?.jlm_rx_mbps != null ? `${metrics.jlm_rx_mbps.toFixed(2)} Mbps` : '-';
+  const jlmTx = metrics?.jlm_tx_mbps != null ? `${metrics.jlm_tx_mbps.toFixed(2)} Mbps` : '-';
+  const jlmStatus = metrics?.jlm_status ? metrics.jlm_status.toUpperCase() : (hasMetrics ? 'UNKNOWN' : 'MENUNGGU');
+
+  const ionLatency = metrics?.ion_latency_ms != null ? `${metrics.ion_latency_ms.toFixed(1)} ms` : '-';
+  const ionLoss = metrics?.ion_packet_loss != null ? `${metrics.ion_packet_loss.toFixed(0)}%` : '-';
+  const ionRx = metrics?.ion_rx_mbps != null ? `${metrics.ion_rx_mbps.toFixed(2)} Mbps` : '-';
+  const ionTx = metrics?.ion_tx_mbps != null ? `${metrics.ion_tx_mbps.toFixed(2)} Mbps` : '-';
+  const ionStatus = metrics?.ion_status ? metrics.ion_status.toUpperCase() : (hasMetrics ? 'UNKNOWN' : 'MENUNGGU');
+
 
   return (
     <div className="space-y-3">

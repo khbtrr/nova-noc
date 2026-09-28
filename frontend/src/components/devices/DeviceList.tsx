@@ -4,11 +4,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, Server, Trash2 } from 'lucide-react';
+import { Search, Server, Trash2, Pencil } from 'lucide-react';
 import { Device } from '@/types/device';
 import { formatUptime, formatDate, cn } from '@/lib/utils';
 import { useDevices } from '@/hooks/useDevices';
+import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
+import EditDeviceModal from './EditDeviceModal';
 
 interface DeviceListProps {
   devices: Device[];
@@ -16,10 +18,15 @@ interface DeviceListProps {
 
 export default function DeviceList({ devices }: DeviceListProps) {
   const [search, setSearch] = useState('');
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const navigate = useNavigate();
   const { deleteDevice } = useDevices();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
 
   const filteredDevices = (devices || []).filter((d) => {
+
     const name = d.name?.toLowerCase() || '';
     const host = (d.host || d.ip_address || '').toLowerCase();
     const group = (d.group || '').toLowerCase();
@@ -125,17 +132,37 @@ export default function DeviceList({ devices }: DeviceListProps) {
                         >
                           Detail
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => handleDelete(e, device.id, device.name)}
-                          className="h-7 w-7 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
-                          title="Hapus Perangkat"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {isAdmin && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingDevice(device);
+                                setIsEditModalOpen(true);
+                              }}
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10"
+                              title="Edit Perangkat"
+                              aria-label={`Edit ${device.name}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => handleDelete(e, device.id, device.name)}
+                              className="h-7 w-7 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                              title="Hapus Perangkat"
+                              aria-label={`Hapus ${device.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
+
                   </TableRow>
                 );
               })
@@ -143,6 +170,12 @@ export default function DeviceList({ devices }: DeviceListProps) {
           </TableBody>
         </Table>
       </div>
+
+      <EditDeviceModal
+        device={editingDevice}
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+      />
     </div>
   );
 }

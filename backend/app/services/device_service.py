@@ -37,6 +37,8 @@ async def update_device(db: AsyncSession, device_id: int, device_in: DeviceUpdat
     device = await get_device(db, device_id)
     update_data = device_in.model_dump(exclude_unset=True)
     for k, v in update_data.items():
+        if k == "password" and not v:
+            continue
         setattr(device, k, v)
     device.updated_at = datetime.now(timezone.utc)
     await db.commit()

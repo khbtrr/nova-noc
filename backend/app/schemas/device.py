@@ -22,6 +22,7 @@ class DeviceCreate(DeviceBase):
 class DeviceUpdate(BaseModel):
     name: Optional[str] = None
     host: Optional[str] = None
+    device_type: Optional[DeviceType] = None
     port: Optional[int] = None
     username: Optional[str] = None
     password: Optional[str] = None

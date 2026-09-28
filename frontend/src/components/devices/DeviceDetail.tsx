@@ -15,21 +15,27 @@ import {
   ArrowLeft, Activity, Server, Clock, AlertTriangle, 
   Network, Wifi, Radio, Bot, CheckCircle2, ShieldAlert,
   ArrowDownUp, RefreshCw, Globe, Zap, RotateCcw, Terminal,
-  CheckCircle, XCircle, History
+  CheckCircle, XCircle, History, Pencil
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { Select } from '@/components/ui/select';
 import { remediationApi, RemediationLogItem } from '@/services/remediationApi';
+import EditDeviceModal from './EditDeviceModal';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function DeviceDetail() {
   const { id = '1' } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
   const [activeTab, setActiveTab] = useState<'interfaces' | 'dhcp' | 'routes' | 'remediation' | 'ai'>('interfaces');
+
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [selectedInterface, setSelectedInterface] = useState<string>('');
   const [executingAction, setExecutingAction] = useState<string | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Fetch device details
   const { data: device, refetch: refetchDevice } = useQuery({
@@ -104,8 +110,8 @@ export default function DeviceDetail() {
       } else {
         toast.warning(res.message || 'Port tidak merespon.');
       }
-    } catch {
-      toast.info('Uji koneksi socket berhasil dievaluasi.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Gagal menguji koneksi ke perangkat.');
     } finally {
       setIsTesting(false);
     }
@@ -117,15 +123,9 @@ export default function DeviceDetail() {
       const res = await aiApi.analyzeDevice(id);
       setAiAnalysis(res.analysis);
       toast.success('Analisis AI perangkat selesai.');
-    } catch {
-      setAiAnalysis(
-        `### Analisis AI untuk ${device?.name || 'Perangkat'}\n\n` +
-        `**Status Operasional:** Perangkat beroperasi normal dengan utilisasi CPU ${metrics?.cpu_load ?? 24}% dan RAM ${metrics?.memory_usage ?? 45}%.\n\n` +
-        `**Rekomendasi Troubleshooting:**\n` +
-        `- Pastikan MTU pada interface WAN disesuaikan dengan standar ISP (biasanya 1500 atau 1492 untuk PPPoE).\n` +
-        `- Cek firewall NAT masquerade agar tidak membebani connection tracking table.\n` +
-        `- Lakukan backup konfigurasi berkala.`
-      );
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Gagal menjalankan analisis AI perangkat.');
+      setAiAnalysis(null);
     } finally {
       setIsAnalyzing(false);
     }
@@ -135,10 +135,11 @@ export default function DeviceDetail() {
   const host = device?.host || device?.ip_address || '-';
   const devType = device?.device_type || device?.type || 'MIKROTIK';
   const isCoreRouter = String(devType).toUpperCase() === 'MIKROTIK' && (
-    device?.host === '119.18.156.155' || 
+    device?.group?.toLowerCase().includes('core') ||
     device?.name?.toLowerCase().includes('router') || 
     device?.name?.toLowerCase().includes('core')
   );
+
   const cpu = metrics?.cpu_load;
   const mem = metrics?.memory_usage;
   const uptime = metrics?.uptime ?? device?.uptime ?? '-';
@@ -173,17 +174,31 @@ export default function DeviceDetail() {
         </div>
 
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTestConnection}
+                disabled={isTesting}
+                className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
+              >
+                <Radio className={`h-3.5 w-3.5 mr-1.5 ${isTesting ? 'animate-pulse text-cyan-400' : ''}`} />
+                {isTesting ? 'Menguji...' : 'Uji Koneksi'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditModalOpen(true)}
+                className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1.5 text-cyan-400" />
+                Edit Perangkat
+              </Button>
+            </>
+          )}
           <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTestConnection}
-            disabled={isTesting}
-            className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
-          >
-            <Radio className={`h-3.5 w-3.5 mr-1.5 ${isTesting ? 'animate-pulse text-cyan-400' : ''}`} />
-            {isTesting ? 'Menguji...' : 'Uji Koneksi'}
-          </Button>
-          <Button
+
             size="sm"
             onClick={() => {
               refetchDevice();
@@ -739,6 +754,13 @@ export default function DeviceDetail() {
           </Card>
         )}
       </div>
+
+      <EditDeviceModal
+        device={device || null}
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+        onSuccess={() => refetchDevice()}
+      />
     </div>
   );
 }

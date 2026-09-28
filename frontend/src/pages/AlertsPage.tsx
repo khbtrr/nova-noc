@@ -7,13 +7,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useAlerts } from '@/hooks/useAlerts';
 import { formatDistanceToNow } from 'date-fns';
 import { AlertTriangle, CheckCircle2, ShieldAlert, Plus, Trash2, Sliders, Bell, Pencil } from 'lucide-react';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function AlertsPage() {
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
   const [activeTab, setActiveTab] = useState<'active' | 'history' | 'rules'>('active');
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
   const [isAddRuleOpen, setIsAddRuleOpen] = useState(false);
   const [isEditRuleOpen, setIsEditRuleOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<any>(null);
+
 
   // Form state for creating rule
   const [newRule, setNewRule] = useState({
@@ -99,16 +103,19 @@ export default function AlertsPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => setIsAddRuleOpen(true)}
-            className="bg-cyan-600 hover:bg-cyan-500 text-white font-medium"
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Aturan Alert Baru
-          </Button>
+          {isAdmin && (
+            <Button
+              size="sm"
+              onClick={() => setIsAddRuleOpen(true)}
+              className="bg-cyan-600 hover:bg-cyan-500 text-white font-medium"
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Aturan Alert Baru
+            </Button>
+          )}
         </div>
       </div>
+
 
       {/* Tabs */}
       <div className="flex border-b border-slate-800 gap-4 text-sm font-medium">
@@ -266,28 +273,31 @@ export default function AlertsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleOpenEdit(rule)}
-                      className="text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 h-8 px-2"
-                      title="Edit Threshold"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => deleteRule(rule.id)}
-                      className="text-red-400 hover:bg-red-500/10 hover:text-red-300 h-8 px-2"
-                      title="Hapus Aturan"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleOpenEdit(rule)}
+                        className="text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 h-8 px-2"
+                        title="Edit Threshold"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deleteRule(rule.id)}
+                        className="text-red-400 hover:bg-red-500/10 hover:text-red-300 h-8 px-2"
+                        title="Hapus Aturan"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
+
             </div>
           </CardContent>
         </Card>

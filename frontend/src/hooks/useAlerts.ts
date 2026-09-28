@@ -11,38 +11,23 @@ export const useAlerts = () => {
   const alertsQuery = useQuery({
     queryKey: ['alerts', 'active'],
     queryFn: async () => {
-      try {
-        const data = await alertApi.getAlerts(true);
-        setAlerts(data);
-        return data;
-      } catch {
-        return [];
-      }
+      const data = await alertApi.getAlerts(true);
+      setAlerts(data);
+      return data;
     },
     refetchInterval: 15000,
   });
 
   const historyQuery = useQuery({
     queryKey: ['alerts', 'history'],
-    queryFn: async () => {
-      try {
-        return await alertApi.getAlertHistory();
-      } catch {
-        return [];
-      }
-    },
+    queryFn: () => alertApi.getAlertHistory(),
   });
 
   const rulesQuery = useQuery({
     queryKey: ['alert-rules'],
-    queryFn: async () => {
-      try {
-        return await alertApi.getRules();
-      } catch {
-        return [];
-      }
-    },
+    queryFn: () => alertApi.getRules(),
   });
+
 
   const ackMutation = useMutation({
     mutationFn: alertApi.acknowledgeAlert,

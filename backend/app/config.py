@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_ADMIN_IDS: str = ""
     
     DEFAULT_POLL_INTERVAL: int = 30
     DEFAULT_ADMIN_USERNAME: str = "admin"
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     
     APP_NAME: str = "NOVA"
     DEBUG: bool = True
+
 
     class Config:
         env_file = ".env"

@@ -57,22 +57,8 @@ def get_current_metrics(device_id: int) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
-    # Provide default placeholder metrics if device has just been registered
-    return {
-        "device_id": device_id,
-        "cpu_load": 12.5,
-        "memory_usage": 38.2,
-        "memory_total": 1073741824,
-        "memory_free": 663486464,
-        "uptime": "3d 14h 22m",
-        "board_name": "RouterBOARD",
-        "version": "RouterOS v7.14",
-        "interfaces": [
-            {"name": "ether1-WAN", "type": "ether", "rx_bytes": 104857600, "tx_bytes": 52428800, "running": True, "disabled": False},
-            {"name": "ether2-LAN", "type": "ether", "rx_bytes": 52428800, "tx_bytes": 104857600, "running": True, "disabled": False},
-            {"name": "wlan1", "type": "wlan", "rx_bytes": 12582912, "tx_bytes": 8388608, "running": True, "disabled": False}
-        ]
-    }
+    # No metrics available yet
+    return None
 
 def get_metrics_history(device_id: int, range_str: str = "1h") -> Dict[str, Any]:
     buffer = _history_buffer.get(device_id, [])
@@ -107,59 +93,38 @@ def get_metrics_history(device_id: int, range_str: str = "1h") -> Dict[str, Any]
             "ion_packet_loss": ion_packet_loss
         }
 
-    # Generate realistic historical trend for chart display if no history yet
-    now = datetime.now(timezone.utc)
-    timestamps = [(now - timedelta(minutes=(20 - i)*2)).isoformat() for i in range(21)]
-    cpu_trend = [15.0 + (i % 7) * 3.5 for i in range(21)]
-    mem_trend = [40.0 + (i % 4) * 2.0 for i in range(21)]
-    rx_trend = [1200.0 + (i % 5) * 450.0 for i in range(21)]
-    tx_trend = [850.0 + (i % 6) * 320.0 for i in range(21)]
-    latency_trend = [5.0 + (i % 4) * 1.2 for i in range(21)]
-    loss_trend = [0.0 for _ in range(21)]
-    wan_latency_trend = [14.0 + (i % 5) * 1.5 for i in range(21)]
-    wan_loss_trend = [0.0 for _ in range(21)]
-
     return {
         "device_id": device_id,
-        "timestamps": timestamps,
-        "cpu": cpu_trend,
-        "memory": mem_trend,
-        "rx": rx_trend,
-        "tx": tx_trend,
-        "latency": latency_trend,
-        "packet_loss": loss_trend,
-        "wan_latency": wan_latency_trend,
-        "wan_packet_loss": wan_loss_trend
+        "timestamps": [],
+        "cpu": [],
+        "memory": [],
+        "rx": [],
+        "tx": [],
+        "latency": [],
+        "packet_loss": [],
+        "wan_latency": [],
+        "wan_packet_loss": [],
+        "jlm_latency": [],
+        "jlm_packet_loss": [],
+        "ion_latency": [],
+        "ion_packet_loss": []
     }
 
 def get_device_interfaces(device_id: int) -> List[Dict[str, Any]]:
     snapshot = _latest_snapshots.get(device_id)
     if snapshot and "interfaces" in snapshot:
         return snapshot["interfaces"]
-    return [
-        {"name": "ether1-WAN", "type": "ether", "rx_bytes": 104857600, "tx_bytes": 52428800, "running": True, "disabled": False},
-        {"name": "ether2-LAN", "type": "ether", "rx_bytes": 52428800, "tx_bytes": 104857600, "running": True, "disabled": False},
-        {"name": "ether3", "type": "ether", "rx_bytes": 0, "tx_bytes": 0, "running": False, "disabled": False},
-        {"name": "wlan1-2.4G", "type": "wlan", "rx_bytes": 12582912, "tx_bytes": 8388608, "running": True, "disabled": False}
-    ]
+    return []
 
 def get_device_dhcp_leases(device_id: int) -> List[Dict[str, Any]]:
     snapshot = _latest_snapshots.get(device_id)
     if snapshot and "dhcp_leases" in snapshot:
         return snapshot["dhcp_leases"]
-    return [
-        {"address": "192.168.88.10", "mac_address": "D4:6E:0E:12:34:56", "host_name": "Workstation-NOC-01", "status": "bound"},
-        {"address": "192.168.88.15", "mac_address": "A0:B3:CC:78:90:12", "host_name": "Server-Core", "status": "bound"},
-        {"address": "192.168.88.22", "mac_address": "BC:D1:1F:45:67:89", "host_name": "AP-Unifi-Lantai2", "status": "bound"},
-        {"address": "192.168.88.35", "mac_address": "48:5F:99:AA:BB:CC", "host_name": "Printer-HP-LaserJet", "status": "bound"},
-    ]
+    return []
 
 def get_device_routes(device_id: int) -> List[Dict[str, Any]]:
     snapshot = _latest_snapshots.get(device_id)
     if snapshot and "routes" in snapshot:
         return snapshot["routes"]
-    return [
-        {"dst_address": "0.0.0.0/0", "gateway": "192.168.1.1", "distance": 1},
-        {"dst_address": "192.168.88.0/24", "gateway": "ether2-LAN", "distance": 0},
-        {"dst_address": "10.10.0.0/16", "gateway": "10.10.1.1", "distance": 1},
-    ]
+    return []
+

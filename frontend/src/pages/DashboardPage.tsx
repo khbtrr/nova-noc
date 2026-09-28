@@ -8,7 +8,6 @@ import DualWanPanel from '@/components/dashboard/DualWanPanel';
 import { HistoricalChart } from '@/components/dashboard/HistoricalChart';
 import { TopologyMap } from '@/components/dashboard/TopologyMap';
 import { useDevices } from '@/hooks/useDevices';
-import { useWebSocket } from '@/hooks/useWebSocket';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, RefreshCw, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -16,10 +15,9 @@ import { useNavigate } from 'react-router-dom';
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { devices, isLoading, refetch } = useDevices();
-  
-  useWebSocket();
 
   const deviceList = devices || [];
+
 
   return (
     <div className="space-y-6 pb-12">
