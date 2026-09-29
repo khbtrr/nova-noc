@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     
     APP_NAME: str = "NOVA"
     DEBUG: bool = True
+    
+    FERNET_SECRET_KEY: str = ""
+    SYSLOG_UDP_PORT: int = 514
 
 
     class Config:

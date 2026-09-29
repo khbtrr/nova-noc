@@ -32,11 +32,22 @@ class DeviceUpdate(BaseModel):
     is_enabled: Optional[bool] = None
     group: Optional[str] = None
     location: Optional[str] = None
+    is_snoozed: Optional[bool] = None
+    snooze_until: Optional[datetime] = None
+    snooze_reason: Optional[str] = None
+
+class DeviceSnoozeRequest(BaseModel):
+    duration_minutes: Optional[int] = None
+    until: Optional[datetime] = None
+    reason: Optional[str] = None
 
 class DeviceResponse(DeviceBase):
     id: int
     status: DeviceStatus
     last_seen: Optional[datetime] = None
+    is_snoozed: bool = False
+    snooze_until: Optional[datetime] = None
+    snooze_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     

@@ -83,7 +83,11 @@ export default function AlertsPage() {
     setIsEditRuleOpen(false);
   };
 
-  const filteredAlerts = (activeTab === 'active' ? activeAlerts : alertHistory).filter((a: any) => {
+  const rawAlerts = activeTab === 'active' 
+    ? (activeAlerts || []).filter((a: any) => !a.is_resolved) 
+    : (alertHistory || []);
+
+  const filteredAlerts = rawAlerts.filter((a: any) => {
     if (severityFilter === 'ALL') return true;
     return a.severity?.toUpperCase() === severityFilter;
   });
@@ -218,8 +222,16 @@ export default function AlertsPage() {
                           </div>
                         </div>
 
-                        <div>
-                          {!isAck ? (
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {alert.is_resolved ? (
+                            <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded font-mono flex items-center gap-1">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Auto-Resolved
+                            </span>
+                          ) : isAck ? (
+                            <span className="text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded font-mono flex items-center gap-1">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Acknowledged
+                            </span>
+                          ) : (
                             <Button
                               size="sm"
                               variant="outline"
@@ -228,9 +240,10 @@ export default function AlertsPage() {
                             >
                               Acknowledge
                             </Button>
-                          ) : (
-                            <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
-                              <CheckCircle2 className="h-4 w-4" /> Diselesaikan
+                          )}
+                          {alert.resolved_at && (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              Pulih: {new Date(alert.resolved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           )}
                         </div>

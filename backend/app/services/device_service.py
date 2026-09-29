@@ -1,11 +1,12 @@
 import asyncio
 import socket
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.models.device import Device, DeviceType, DeviceStatus
-from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceTestResult
+from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceTestResult, DeviceSnoozeRequest
 from app.core.exceptions import NotFoundException
+from app.core.crypto import encrypt_credential, decrypt_credential
 from app.collectors.scheduler import update_device_job, remove_device_job
 
 async def get_device(db: AsyncSession, device_id: int) -> Device:
@@ -21,6 +22,10 @@ async def get_devices(db: AsyncSession):
 
 async def create_device(db: AsyncSession, device_in: DeviceCreate) -> Device:
     device_data = device_in.model_dump(exclude_unset=True)
+    if device_data.get("password"):
+        device_data["password"] = encrypt_credential(device_data["password"])
+    if device_data.get("snmp_community"):
+        device_data["snmp_community"] = encrypt_credential(device_data["snmp_community"])
     device = Device(**device_data)
     device.status = DeviceStatus.ONLINE  # Start as online/pending poll
     db.add(device)
@@ -37,8 +42,12 @@ async def update_device(db: AsyncSession, device_id: int, device_in: DeviceUpdat
     device = await get_device(db, device_id)
     update_data = device_in.model_dump(exclude_unset=True)
     for k, v in update_data.items():
-        if k == "password" and not v:
-            continue
+        if k == "password":
+            if not v:
+                continue
+            v = encrypt_credential(v)
+        elif k == "snmp_community" and v:
+            v = encrypt_credential(v)
         setattr(device, k, v)
     device.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -50,6 +59,32 @@ async def update_device(db: AsyncSession, device_id: int, device_in: DeviceUpdat
     else:
         remove_device_job(device.id)
         
+    return device
+
+async def snooze_device(db: AsyncSession, device_id: int, snooze_in: DeviceSnoozeRequest) -> Device:
+    device = await get_device(db, device_id)
+    device.is_snoozed = True
+    now = datetime.now(timezone.utc)
+    if snooze_in.duration_minutes:
+        device.snooze_until = now + timedelta(minutes=snooze_in.duration_minutes)
+    elif snooze_in.until:
+        device.snooze_until = snooze_in.until
+    else:
+        device.snooze_until = now + timedelta(minutes=60)
+    device.snooze_reason = snooze_in.reason or "Maintenance Window"
+    device.updated_at = now
+    await db.commit()
+    await db.refresh(device)
+    return device
+
+async def unsnooze_device(db: AsyncSession, device_id: int) -> Device:
+    device = await get_device(db, device_id)
+    device.is_snoozed = False
+    device.snooze_until = None
+    device.snooze_reason = None
+    device.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(device)
     return device
 
 async def delete_device(db: AsyncSession, device_id: int):
@@ -77,7 +112,7 @@ async def test_device_connection(device: Device) -> DeviceTestResult:
                 get_cmd, SnmpEngine, CommunityData, UdpTransportTarget,
                 ContextData, ObjectType, ObjectIdentity
             )
-            community_str = device.snmp_community or 'public'
+            community_str = decrypt_credential(device.snmp_community) or 'public'
             mp_model = 0 if (device.snmp_version and '1' in device.snmp_version) else 1
             community = CommunityData(community_str, mpModel=mp_model)
             target = await UdpTransportTarget.create((host, port), timeout=3.0, retries=1)

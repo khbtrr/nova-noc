@@ -12,6 +12,7 @@ export interface TopologyNodeData {
   status: string;
   is_monitored: boolean;
   interface: string;
+  is_custom?: boolean;
 }
 
 export interface TopologyNode {
@@ -28,6 +29,10 @@ export interface TopologyEdge {
   animated?: boolean;
   label?: string;
   style?: Record<string, any>;
+  data?: {
+    media_type?: 'fiber' | 'ethernet' | 'wan' | 'wireless';
+    speed?: string;
+  };
 }
 
 export interface TopologySummary {
@@ -37,6 +42,7 @@ export interface TopologySummary {
   switch_count: number;
   ap_count: number;
   edges_count: number;
+  is_custom_layout?: boolean;
   last_scan: string;
 }
 
@@ -63,6 +69,16 @@ export const topologyApi = {
 
   scanTopology: async (): Promise<{ status: string; message: string; data: TopologyResponse }> => {
     const res = await api.post('/topology/scan');
+    return res.data;
+  },
+
+  saveTopology: async (payload: { nodes: TopologyNode[]; edges: TopologyEdge[] }): Promise<{ status: string; message: string; data: TopologyResponse }> => {
+    const res = await api.post('/topology/save', payload);
+    return res.data;
+  },
+
+  resetTopology: async (): Promise<{ status: string; message: string; data: TopologyResponse }> => {
+    const res = await api.post('/topology/reset');
     return res.data;
   },
 

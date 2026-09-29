@@ -8,7 +8,7 @@ export const useWebSocket = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const queryClient = useQueryClient();
-  const { addAlert } = useAlertStore();
+  const { addAlert, resolveAlert } = useAlertStore();
   const { token, isAuthenticated } = useAuthStore();
 
   useEffect(() => {
@@ -53,6 +53,13 @@ export const useWebSocket = () => {
               addAlert(data);
               toast.error(`[ALERT] ${data.device_name}: ${data.message}`);
               queryClient.invalidateQueries({ queryKey: ['alerts'] });
+            } else if (eventType === 'alert_resolved') {
+              if (data.alert_id) {
+                resolveAlert(data.alert_id);
+              }
+              toast.success(`[TERATASI] ${data.device_name}: ${data.message}`);
+              queryClient.invalidateQueries({ queryKey: ['alerts'] });
+              queryClient.invalidateQueries({ queryKey: ['alertHistory'] });
             } else if (eventType === 'device_status') {
               queryClient.invalidateQueries({ queryKey: ['devices'] });
             } else if (eventType === 'traffic_anomaly') {
@@ -60,6 +67,15 @@ export const useWebSocket = () => {
               queryClient.invalidateQueries({ queryKey: ['active-anomalies'] });
             } else if (eventType === 'traffic_anomaly_resolved') {
               queryClient.invalidateQueries({ queryKey: ['active-anomalies'] });
+            } else if (eventType === 'syslog_event') {
+              queryClient.invalidateQueries({ queryKey: ['syslog'] });
+              queryClient.invalidateQueries({ queryKey: ['syslog-stats'] });
+              if (data.device_id) {
+                queryClient.invalidateQueries({ queryKey: ['device-syslog', String(data.device_id)] });
+              }
+              if (data.severity === 'EMERGENCY' || data.severity === 'CRITICAL') {
+                toast.error(`[SYSLOG ${data.severity}] ${data.device_name}: ${data.message}`);
+              }
             }
           } catch {
             // Non-JSON message

@@ -8,6 +8,7 @@ import AlertsPage from '@/pages/AlertsPage';
 import AIAssistantPage from '@/pages/AIAssistantPage';
 import SettingsPage from '@/pages/SettingsPage';
 import TopologyPage from '@/pages/TopologyPage';
+import SyslogPage from '@/pages/SyslogPage';
 import { useAuthStore } from '@/stores/authStore';
 
 // Simple protected route wrapper
@@ -34,6 +35,7 @@ function App() {
         <Route path="devices/:id" element={<DeviceDetailPage />} />
         <Route path="topology" element={<TopologyPage />} />
         <Route path="alerts" element={<AlertsPage />} />
+        <Route path="syslog" element={<SyslogPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

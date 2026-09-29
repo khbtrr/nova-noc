@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Globe, Server, Network, Wifi, CheckCircle2, Radio, HardDrive } from 'lucide-react';
+import { Globe, Server, Network, Wifi } from 'lucide-react';
 import { TopologyNodeData } from '@/services/topologyApi';
 
 interface TopologyNodeProps {
@@ -9,7 +9,7 @@ interface TopologyNodeProps {
 }
 
 export const TopologyNode = memo(({ data, selected }: TopologyNodeProps) => {
-  const { label, host, tier, vendor, board, is_monitored, status, interface: iface } = data;
+  const { label, host, tier, vendor, board, is_monitored, status, interface: iface, is_custom } = data;
 
   const getTierConfig = () => {
     switch (tier) {
@@ -49,46 +49,78 @@ export const TopologyNode = memo(({ data, selected }: TopologyNodeProps) => {
     }
   };
 
+  const getStatusBadge = () => {
+    const s = (status || '').toUpperCase();
+    if (s === 'ONLINE') {
+      return (
+        <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-medium">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          ONLINE
+        </span>
+      );
+    }
+    if (s === 'OFFLINE' || s === 'CRITICAL') {
+      return (
+        <span className="flex items-center gap-1 text-[9px] text-rose-400 font-medium">
+          <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+          OFFLINE
+        </span>
+      );
+    }
+    if (s === 'WARNING') {
+      return (
+        <span className="flex items-center gap-1 text-[9px] text-amber-400 font-medium">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+          WARNING
+        </span>
+      );
+    }
+    return (
+      <span className="flex items-center gap-1 text-[9px] text-slate-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+        DISCOVERED
+      </span>
+    );
+  };
+
   const config = getTierConfig();
 
   return (
     <div
       className={`relative min-w-[210px] max-w-[240px] rounded-xl border p-3.5 shadow-lg backdrop-blur-md transition-all duration-200 cursor-pointer ${
         config.bgColor
-      } ${selected ? `ring-2 ring-cyan-400 ${config.selectedBorder}` : 'hover:border-slate-600'}`}
+      } ${selected ? `ring-2 ring-cyan-400 ${config.selectedBorder}` : 'hover:border-slate-500'}`}
     >
+      {/* Top Handle (Target: accepts incoming connections) */}
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !bg-cyan-400 !border-2 !border-slate-900"
+        className="!h-3 !w-3 !bg-cyan-400 hover:scale-125 transition-transform !border-2 !border-slate-900 cursor-crosshair"
       />
 
-      {/* Header: Icon + Status */}
+      {/* Header: Icon + Badges */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900/80 border border-slate-800">
           {config.icon}
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${config.badgeColor}`}>
-            {config.badgeText}
-          </span>
-          {is_monitored ? (
-            <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-medium">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Monitored
+          <div className="flex items-center gap-1">
+            {is_custom && (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Manual
+              </span>
+            )}
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${config.badgeColor}`}>
+              {config.badgeText}
             </span>
-          ) : (
-            <span className="flex items-center gap-1 text-[9px] text-slate-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
-              Discovered
-            </span>
-          )}
+          </div>
+          {getStatusBadge()}
         </div>
       </div>
 
       {/* Device Name & IP */}
       <div className="mt-2.5">
-        <h4 className="text-xs font-bold text-slate-100 truncate title" title={label}>
+        <h4 className="text-xs font-bold text-slate-100 truncate" title={label}>
           {label}
         </h4>
         <p className="text-[11px] font-mono text-cyan-300/90 mt-0.5 truncate">
@@ -108,10 +140,11 @@ export const TopologyNode = memo(({ data, selected }: TopologyNodeProps) => {
         )}
       </div>
 
+      {/* Bottom Handle (Source: initiates outgoing connections) */}
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !bg-cyan-400 !border-2 !border-slate-900"
+        className="!h-3 !w-3 !bg-cyan-400 hover:scale-125 transition-transform !border-2 !border-slate-900 cursor-crosshair"
       />
     </div>
   );

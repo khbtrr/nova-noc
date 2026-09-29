@@ -35,6 +35,7 @@ class AlertResponse(BaseModel):
     threshold_value: Optional[float]
     message: str
     is_acknowledged: bool
+    is_resolved: bool = False
     acknowledged_by: Optional[int]
     acknowledged_at: Optional[datetime]
     created_at: datetime
@@ -42,3 +43,4 @@ class AlertResponse(BaseModel):
     
     class Config:
         from_attributes = True
+

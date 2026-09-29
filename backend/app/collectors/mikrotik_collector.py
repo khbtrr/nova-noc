@@ -27,10 +27,12 @@ class MikrotikCollector(BaseCollector):
         def fetch():
             api = None
             try:
+                from app.core.crypto import decrypt_credential
+                plain_password = decrypt_credential(device.password) or ""
                 port = device.port or 8728
                 api = connect(
                     username=device.username or "admin",
-                    password=device.password or "",
+                    password=plain_password,
                     host=device.host,
                     port=port,
                     timeout=5
@@ -223,7 +225,7 @@ class MikrotikCollector(BaseCollector):
                 # Update in-memory snapshot
                 update_device_snapshot(device.id, metrics)
 
-                # Write time-series data to InfluxDB
+                # Write time-series data to InfluxDB (inside worker thread)
                 try:
                     influx_db.write_metrics(str(device.id), device.name, device.host, {
                         "cpu_load": cpu_load,

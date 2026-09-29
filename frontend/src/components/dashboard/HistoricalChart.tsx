@@ -21,12 +21,29 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
     refetchInterval: 30000,
   });
 
+  const formatTimeLabel = (timestamp: string, range: string) => {
+    if (!timestamp) return '';
+    try {
+      const d = new Date(timestamp);
+      if (isNaN(d.getTime())) return timestamp;
+      if (range === '7d' || range === '30d') {
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        return `${day}/${month} ${time}`;
+      }
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    } catch {
+      return formatLocalTime(timestamp, false);
+    }
+  };
+
   // Transform into recharts format
   const chartData = React.useMemo(() => {
     if (metricsHistory && Array.isArray((metricsHistory as any).timestamps)) {
       const hist = metricsHistory as any;
       return hist.timestamps.map((t: string, idx: number) => ({
-        time: formatLocalTime(t, false),
+        time: formatTimeLabel(t, timeRange),
         cpu: hist.cpu?.[idx] ?? 0,
         memory: hist.memory?.[idx] ?? 0,
         rx: Number((Number(hist.rx?.[idx] ?? 0) / 1000).toFixed(2)),
@@ -37,7 +54,7 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
     }
 
     return [];
-  }, [metricsHistory]);
+  }, [metricsHistory, timeRange]);
 
   const metricConfig = {
     cpu: {
@@ -137,7 +154,7 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
 
           {/* Time Range Selector */}
           <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-            {['1h', '6h', '24h', '7d'].map((range) => (
+            {['1h', '6h', '24h', '7d', '30d'].map((range) => (
               <button
                 key={range}
                 type="button"
@@ -154,7 +171,12 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }
       </CardHeader>
 
       <CardContent>
-        {chartData.length > 0 ? (
+        {isLoading ? (
+          <div className="h-64 w-full flex flex-col items-center justify-center space-y-3">
+            <div className="h-7 w-7 rounded-full border-2 border-cyan-500/20 border-t-cyan-500 animate-spin" />
+            <p className="text-xs text-slate-400 font-mono">Memuat telemetri InfluxDB ({timeRange})...</p>
+          </div>
+        ) : chartData.length > 0 ? (
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>

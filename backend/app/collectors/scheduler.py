@@ -37,14 +37,29 @@ async def poll_device(device_id: int):
                 if metrics:
                     device.status = DeviceStatus.ONLINE
                     device.last_seen = now
-                    # Evaluate alerts
-                    await evaluate_metrics(db, device.id, metrics)
-                    # NOVA Sight: Evaluate traffic anomalies with flapping suppression
-                    try:
-                        history_points = _history_buffer.get(device.id, [])
-                        await evaluate_traffic_anomaly(device.id, device.name, metrics, history_points)
-                    except Exception as sight_err:
-                        logger.warning(f"[NOVA Sight] Error evaluating anomaly for device {device.id}: {sight_err}")
+
+                    # Check maintenance / snooze window
+                    is_currently_snoozed = False
+                    if device.is_snoozed:
+                        if device.snooze_until and now >= device.snooze_until:
+                            device.is_snoozed = False
+                            device.snooze_until = None
+                            device.snooze_reason = None
+                            logger.info(f"Snooze expired for device {device.name} (ID: {device.id}). Resuming alert evaluations.")
+                        else:
+                            is_currently_snoozed = True
+                            logger.debug(f"Device {device.name} (ID: {device.id}) is snoozed until {device.snooze_until}. Skipping alert evaluation.")
+
+                    if not is_currently_snoozed:
+                        # Evaluate alerts
+                        await evaluate_metrics(db, device.id, metrics)
+                        # NOVA Sight: Evaluate traffic anomalies with flapping suppression
+                        try:
+                            history_points = _history_buffer.get(device.id, [])
+                            await evaluate_traffic_anomaly(device.id, device.name, metrics, history_points)
+                        except Exception as sight_err:
+                            logger.warning(f"[NOVA Sight] Error evaluating anomaly for device {device.id}: {sight_err}")
+
                     # Broadcast real-time metrics update via WebSocket
                     ws_payload = json.dumps({
                         "event": "metrics_update",
@@ -53,6 +68,7 @@ async def poll_device(device_id: int):
                             "device_name": device.name,
                             "host": device.host,
                             "status": device.status.value,
+                            "is_snoozed": device.is_snoozed,
                             "last_seen": now.isoformat(),
                             "metrics": metrics
                         }

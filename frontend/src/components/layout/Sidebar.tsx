@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Activity, LayoutDashboard, Server, ShieldAlert, Bot, Settings, LogOut, Network } from 'lucide-react';
+import { Activity, LayoutDashboard, Server, ShieldAlert, Bot, Settings, LogOut, Network, ScrollText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -12,6 +12,7 @@ export default function Sidebar() {
     { to: '/devices', icon: Server, label: 'Perangkat' },
     { to: '/topology', icon: Network, label: 'Topologi Jaringan' },
     { to: '/alerts', icon: ShieldAlert, label: 'Alert & Insiden' },
+    { to: '/syslog', icon: ScrollText, label: 'Syslog Receiver' },
     { to: '/ai', icon: Bot, label: 'Asisten Diagnostik' },
     { to: '/settings', icon: Settings, label: 'Pengaturan' },
   ];

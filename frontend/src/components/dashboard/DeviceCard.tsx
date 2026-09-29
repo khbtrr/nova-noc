@@ -108,9 +108,16 @@ export default function DeviceCard({ device }: DeviceCardProps) {
             </div>
             <p className="text-xs font-mono text-slate-400 mt-0.5">{host}</p>
           </div>
-          <span className="text-[10px] font-semibold bg-slate-800 text-cyan-400 px-2 py-0.5 rounded uppercase border border-slate-700">
-            {String(devType)}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {device.is_snoozed && (
+              <span className="text-[9px] font-semibold bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded uppercase border border-amber-500/30">
+                SNOOZED
+              </span>
+            )}
+            <span className="text-[10px] font-semibold bg-slate-800 text-cyan-400 px-2 py-0.5 rounded uppercase border border-slate-700">
+              {String(devType)}
+            </span>
+          </div>
         </div>
         
         <div className="flex justify-around items-center my-3 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">

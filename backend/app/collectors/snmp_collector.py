@@ -23,7 +23,8 @@ class SNMPCollector(BaseCollector):
         min_rtt = icmp_stat.get("min_rtt", 0.0)
         max_rtt = icmp_stat.get("max_rtt", 0.0)
 
-        community_str = device.snmp_community or 'public'
+        from app.core.crypto import decrypt_credential
+        community_str = decrypt_credential(device.snmp_community) or 'public'
         port_num = device.port or 161
         host_str = device.host
 
@@ -230,9 +231,9 @@ class SNMPCollector(BaseCollector):
             # Update memory snapshot for frontend
             update_device_snapshot(device.id, metrics)
 
-            # Write time-series data to InfluxDB
+            # Write time-series data to InfluxDB asynchronously
             try:
-                influx_db.write_metrics(str(device.id), device.name, device.host, {
+                await asyncio.to_thread(influx_db.write_metrics, str(device.id), device.name, device.host, {
                     "cpu_load": cpu_load,
                     "memory_usage": mem_usage,
                     "rx_kbps": rx_kbps,

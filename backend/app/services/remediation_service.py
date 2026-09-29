@@ -18,10 +18,12 @@ logger = logging.getLogger("nova.remediation_service")
 def _get_routeros_api(device: Device):
     """Helper to connect to RouterOS API via librouteros."""
     from librouteros import connect
+    from app.core.crypto import decrypt_credential
     port = device.port or 8728
+    plain_password = decrypt_credential(device.password) or ""
     return connect(
         username=device.username or "admin",
-        password=device.password or "",
+        password=plain_password,
         host=device.host,
         port=port,
         timeout=6

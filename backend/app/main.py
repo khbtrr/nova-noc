@@ -19,15 +19,52 @@ logger = logging.getLogger("nova.main")
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_resolved BOOLEAN DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_snoozed BOOLEAN DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snooze_until TIMESTAMP WITH TIME ZONE;"))
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snooze_reason VARCHAR;"))
         
     async with async_session_maker() as db:
         await create_default_admin(db)
         await seed_initial_data(db)
         
+        # Auto-migrate any unencrypted device credentials with Fernet
+        try:
+            from sqlalchemy.future import select
+            from app.models.device import Device
+            from app.core.crypto import is_encrypted, encrypt_credential
+            dev_res = await db.execute(select(Device))
+            devices = dev_res.scalars().all()
+            migrated_count = 0
+            for dev in devices:
+                updated = False
+                if dev.password and not is_encrypted(dev.password):
+                    dev.password = encrypt_credential(dev.password)
+                    updated = True
+                if dev.snmp_community and not is_encrypted(dev.snmp_community):
+                    dev.snmp_community = encrypt_credential(dev.snmp_community)
+                    updated = True
+                if updated:
+                    migrated_count += 1
+            if migrated_count > 0:
+                await db.commit()
+                logger.info(f"Fernet: Migrated credentials for {migrated_count} devices to encrypted storage.")
+        except Exception as mig_err:
+            logger.warning(f"Credential migration skipped: {mig_err}")
+
     try:
         await start_scheduler()
     except Exception as e:
         logger.warning(f"Scheduler could not start: {e}")
+
+    try:
+        from app.services.syslog_service import start_syslog_server, stop_syslog_server, cleanup_old_syslogs
+        await start_syslog_server()
+        # Clean up expired logs older than 7 days
+        await cleanup_old_syslogs(retention_days=7)
+    except Exception as e:
+        logger.warning(f"Syslog receiver could not start: {e}")
 
     try:
         from app.notifications.telegram_worker import start_telegram_worker, stop_telegram_worker
@@ -37,6 +74,12 @@ async def lifespan(app: FastAPI):
     
     yield
     
+    try:
+        from app.services.syslog_service import stop_syslog_server
+        stop_syslog_server()
+    except Exception as e:
+        logger.warning(f"Error stopping Syslog server: {e}")
+
     try:
         from app.notifications.telegram_worker import stop_telegram_worker
         await stop_telegram_worker()

@@ -23,8 +23,17 @@ export interface Device {
   board_name?: string;
   cpu_load?: number;
   memory_usage?: number;
+  is_snoozed?: boolean;
+  snooze_until?: string | null;
+  snooze_reason?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface SnoozeDeviceDTO {
+  duration_minutes?: number;
+  until?: string;
+  reason?: string;
 }
 
 export interface CreateDeviceDTO {

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
-from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceTestResult
+from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceTestResult, DeviceSnoozeRequest
 from app.services.device_service import (
     get_devices,
     get_device,
@@ -9,6 +9,8 @@ from app.services.device_service import (
     update_device,
     delete_device,
     test_device_connection,
+    snooze_device,
+    unsnooze_device,
 )
 from app.core.dependencies import get_db, get_current_user, require_admin
 
@@ -50,4 +52,21 @@ async def test_device(
 ):
     device = await get_device(db, id)
     return await test_device_connection(device)
+
+@router.post("/{id}/snooze", response_model=DeviceResponse)
+async def snooze_device_route(
+    id: int,
+    snooze_in: DeviceSnoozeRequest,
+    db: AsyncSession = Depends(get_db),
+    admin = Depends(require_admin)
+):
+    return await snooze_device(db, id, snooze_in)
+
+@router.post("/{id}/unsnooze", response_model=DeviceResponse)
+async def unsnooze_device_route(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+    admin = Depends(require_admin)
+):
+    return await unsnooze_device(db, id)
 

@@ -32,5 +32,8 @@ class Device(Base):
     location: Mapped[str] = mapped_column(String, nullable=True)
     status: Mapped[DeviceStatus] = mapped_column(default=DeviceStatus.OFFLINE)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_snoozed: Mapped[bool] = mapped_column(Boolean, default=False)
+    snooze_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    snooze_reason: Mapped[str] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

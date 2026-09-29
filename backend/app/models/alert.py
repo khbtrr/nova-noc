@@ -21,7 +21,9 @@ class Alert(Base):
     threshold_value: Mapped[float] = mapped_column(Float, nullable=True)
     message: Mapped[str] = mapped_column(String)
     is_acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     acknowledged_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+

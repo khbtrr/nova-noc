@@ -7,9 +7,10 @@ interface AlertState {
   setAlerts: (alerts: Alert[]) => void;
   addAlert: (alert: Alert) => void;
   acknowledgeAlert: (id: string | number) => void;
+  resolveAlert: (id: string | number) => void;
 }
 
-const isAck = (a: Alert) => Boolean(a.is_acknowledged || a.acknowledged);
+const isAck = (a: Alert) => Boolean(a.is_acknowledged || a.acknowledged || a.is_resolved);
 
 export const useAlertStore = create<AlertState>((set) => ({
   alerts: [],
@@ -28,6 +29,15 @@ export const useAlertStore = create<AlertState>((set) => ({
   acknowledgeAlert: (id) => set((state) => {
     const newAlerts = state.alerts.map(a => 
       a.id === id ? { ...a, is_acknowledged: true, acknowledged: true } : a
+    );
+    return {
+      alerts: newAlerts,
+      unreadCount: newAlerts.filter(a => !isAck(a)).length
+    };
+  }),
+  resolveAlert: (id) => set((state) => {
+    const newAlerts = state.alerts.map(a => 
+      a.id === id ? { ...a, is_resolved: true, resolved_at: new Date().toISOString() } : a
     );
     return {
       alerts: newAlerts,

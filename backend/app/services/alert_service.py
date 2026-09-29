@@ -14,8 +14,11 @@ from app.core.exceptions import NotFoundException
 
 logger = logging.getLogger("nova.alert_service")
 
-# Cooldown tracking: (device_id, metric_name) -> last_alert_time
+# Cooldown tracking: (device_id, rule_id, severity_str) -> last_alert_time
 _recent_alerts = {}
+
+# Flapping suppression for auto-recovery: (device_id, metric_name) -> consecutive_normal_cycles
+_recovery_counters = {}
 
 async def evaluate_metrics(db: AsyncSession, device_id: int, metrics: dict):
     # Fetch rules for this device or global rules
@@ -60,7 +63,12 @@ async def evaluate_metrics(db: AsyncSession, device_id: int, metrics: dict):
                     severity = AlertSeverity.WARNING
                     threshold_hit = rule.warning_threshold
 
+            recovery_key = (device_id, metric_key)
+
             if severity:
+                # Metric violated threshold -> reset recovery counter
+                _recovery_counters[recovery_key] = 0
+
                 # Check cooldown (avoid spamming alert every 30s)
                 cache_key = (device_id, rule.id, severity.value)
                 last_time = _recent_alerts.get(cache_key)
@@ -79,6 +87,7 @@ async def evaluate_metrics(db: AsyncSession, device_id: int, metrics: dict):
                     threshold_value=threshold_hit,
                     message=msg,
                     is_acknowledged=False,
+                    is_resolved=False,
                     created_at=now
                 )
                 db.add(alert)
@@ -105,18 +114,68 @@ async def evaluate_metrics(db: AsyncSession, device_id: int, metrics: dict):
                 tg_msg = f"🚨 *NOVA Alert*\nPerangkat: *{device_name}* ({host})\nSeverity: *{severity.value}*\nMetric: `{metric_key}` = {val:.1f}\nPesan: {msg}"
                 await send_telegram_message(tg_msg)
 
+            else:
+                # Metric is normal (severity is None).
+                # Check if there are active, unresolved alerts for this device and metric.
+                active_alerts_res = await db.execute(
+                    select(Alert).filter(
+                        Alert.device_id == device_id,
+                        Alert.metric_name == metric_key,
+                        Alert.is_resolved == False
+                    )
+                )
+                active_alerts = list(active_alerts_res.scalars().all())
+
+                if active_alerts:
+                    consecutive_count = _recovery_counters.get(recovery_key, 0) + 1
+                    _recovery_counters[recovery_key] = consecutive_count
+
+                    # Flapping suppression: must persist healthy for at least 2 consecutive polling cycles
+                    if consecutive_count >= 2:
+                        for act_alert in active_alerts:
+                            act_alert.is_resolved = True
+                            act_alert.resolved_at = now
+                        await db.commit()
+
+                        # Reset recovery counter and clean recent alert cooldowns
+                        _recovery_counters.pop(recovery_key, None)
+                        for sev_val in [AlertSeverity.CRITICAL.value, AlertSeverity.WARNING.value]:
+                            _recent_alerts.pop((device_id, rule.id, sev_val), None)
+
+                        # Send Telegram Recovery notification
+                        recov_msg = (
+                            f"✅ *NOVA Alert Recovered*\n"
+                            f"Perangkat: *{device_name}* ({host})\n"
+                            f"Status: *NORMAL* (Pemulihan Otomatis)\n"
+                            f"Metric: `{metric_key}` telah kembali normal pada {val:.1f}"
+                        )
+                        await send_telegram_message(recov_msg)
+
+                        # Broadcast WebSocket event
+                        ws_payload = json.dumps({
+                            "event": "alert_resolved",
+                            "data": {
+                                "device_id": device_id,
+                                "device_name": device_name,
+                                "metric_name": metric_key,
+                                "metric_value": val,
+                                "resolved_at": now.isoformat()
+                            }
+                        })
+                        await manager.broadcast(ws_payload)
+
 async def get_alerts(db: AsyncSession, active_only: bool = True) -> List[Alert]:
     query = select(Alert)
     if active_only:
-        query = query.filter(Alert.is_acknowledged == False)
+        query = query.filter(Alert.is_acknowledged == False, Alert.is_resolved == False)
     query = query.order_by(Alert.created_at.desc())
     result = await db.execute(query)
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 async def get_alert_history(db: AsyncSession, limit: int = 100) -> List[Alert]:
     query = select(Alert).order_by(Alert.created_at.desc()).limit(limit)
     result = await db.execute(query)
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 async def acknowledge_alert(db: AsyncSession, alert_id: int, user_id: Optional[int] = None) -> Alert:
     result = await db.execute(select(Alert).filter(Alert.id == alert_id))
@@ -125,12 +184,14 @@ async def acknowledge_alert(db: AsyncSession, alert_id: int, user_id: Optional[i
         raise NotFoundException("Alert not found")
         
     alert.is_acknowledged = True
+    alert.is_resolved = True
     alert.acknowledged_by = user_id
     alert.acknowledged_at = datetime.now(timezone.utc)
     alert.resolved_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(alert)
     return alert
+
 
 async def get_alert_rules(db: AsyncSession) -> List[AlertRule]:
     result = await db.execute(select(AlertRule).order_by(AlertRule.id))

@@ -63,6 +63,7 @@ services:
       INFLUXDB_URL: http://nova-influxdb:8086
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+      - "${SYSLOG_PORT:-514}:514/udp"
     volumes:
       - ./backend/app:/app/app  # Hot reload in development
     depends_on:

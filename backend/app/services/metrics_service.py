@@ -61,6 +61,16 @@ def get_current_metrics(device_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 def get_metrics_history(device_id: int, range_str: str = "1h") -> Dict[str, Any]:
+    # 1. Query InfluxDB first for long-term telemetry
+    try:
+        influx_data = influx_db.query_metrics_history(str(device_id), range_str)
+        if influx_data and len(influx_data.get("timestamps", [])) > 0:
+            return influx_data
+    except Exception:
+        # InfluxDB query failed or unreachable, fall back gracefully to buffer
+        pass
+
+    # 2. Fall back to in-memory rolling buffer for recently added devices
     buffer = _history_buffer.get(device_id, [])
     if buffer:
         timestamps = [p["timestamp"] for p in buffer]

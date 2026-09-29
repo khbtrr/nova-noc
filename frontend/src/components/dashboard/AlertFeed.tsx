@@ -9,7 +9,7 @@ import { AlertTriangle, CheckCircle2, Bell } from 'lucide-react';
 export default function AlertFeed() {
   const { activeAlerts, acknowledgeAlert } = useAlerts();
 
-  const alerts = activeAlerts || [];
+  const alerts = (activeAlerts || []).filter((a: any) => !a.is_resolved);
 
   const getSeverityStyle = (sev: string = 'INFO') => {
     const s = sev.toUpperCase();
@@ -26,7 +26,7 @@ export default function AlertFeed() {
             <Bell className="h-4 w-4 text-amber-400" />
             Live Alert Feed
             <span className="bg-amber-500/10 text-amber-400 text-xs px-2 py-0.5 rounded-full border border-amber-500/20 font-mono">
-              {alerts.filter((a: any) => !a.is_acknowledged && !a.acknowledged).length} aktif
+              {alerts.filter((a: any) => !a.is_acknowledged && !a.acknowledged && !a.is_resolved).length} aktif
             </span>
           </CardTitle>
         </div>

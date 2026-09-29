@@ -15,12 +15,14 @@ import {
   ArrowLeft, Activity, Server, Clock, AlertTriangle, 
   Network, Wifi, Radio, Bot, CheckCircle2, ShieldAlert,
   ArrowDownUp, RefreshCw, Globe, Zap, RotateCcw, Terminal,
-  CheckCircle, XCircle, History, Pencil
+  CheckCircle, XCircle, History, Pencil, BellOff, BellRing, ScrollText
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { Select } from '@/components/ui/select';
 import { remediationApi, RemediationLogItem } from '@/services/remediationApi';
+import { syslogApi } from '@/services/syslogApi';
 import EditDeviceModal from './EditDeviceModal';
+import SnoozeDeviceModal from './SnoozeDeviceModal';
 import { useAuthStore } from '@/stores/authStore';
 
 export default function DeviceDetail() {
@@ -28,7 +30,7 @@ export default function DeviceDetail() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'interfaces' | 'dhcp' | 'routes' | 'remediation' | 'ai'>('interfaces');
+  const [activeTab, setActiveTab] = useState<'interfaces' | 'dhcp' | 'routes' | 'remediation' | 'syslog' | 'ai'>('interfaces');
 
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -36,6 +38,7 @@ export default function DeviceDetail() {
   const [selectedInterface, setSelectedInterface] = useState<string>('');
   const [executingAction, setExecutingAction] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isSnoozeModalOpen, setIsSnoozeModalOpen] = useState(false);
 
   // Fetch device details
   const { data: device, refetch: refetchDevice } = useQuery({
@@ -73,6 +76,13 @@ export default function DeviceDetail() {
     queryKey: ['remediationLogs', id],
     queryFn: () => remediationApi.getDeviceLogs(id),
     refetchInterval: 10000,
+  });
+
+  // Fetch device-specific syslog messages
+  const { data: deviceSyslogData } = useQuery({
+    queryKey: ['device-syslog', id],
+    queryFn: () => syslogApi.getSyslogs({ device_id: Number(id), limit: 100 }),
+    refetchInterval: activeTab === 'syslog' ? 5000 : false,
   });
 
   const handleExecuteRemediation = async (actionType: 'FLUSH_DNS' | 'RESTART_INTERFACE' | 'RUN_DIAGNOSTICS' | 'ACKNOWLEDGE', target?: string) => {
@@ -131,6 +141,16 @@ export default function DeviceDetail() {
     }
   };
 
+  const handleUnsnooze = async () => {
+    try {
+      await deviceApi.unsnoozeDevice(id);
+      toast.success('Mode maintenance dinonaktifkan. Pengawasan alert dilanjutkan.');
+      refetchDevice();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Gagal mengakhiri mode maintenance.');
+    }
+  };
+
   const deviceName = device?.name || `Perangkat #${id}`;
   const host = device?.host || device?.ip_address || '-';
   const devType = device?.device_type || device?.type || 'MIKROTIK';
@@ -168,6 +188,12 @@ export default function DeviceDetail() {
               <Badge variant="outline" className="text-[10px] uppercase font-mono text-cyan-400 border-cyan-500/30">
                 {String(devType)}
               </Badge>
+              {device?.is_snoozed && (
+                <Badge variant="outline" className="text-[10px] uppercase font-mono text-amber-400 border-amber-500/40 bg-amber-500/10 flex items-center gap-1">
+                  <BellOff className="h-3 w-3" />
+                  MAINTENANCE
+                </Badge>
+              )}
             </div>
             <p className="text-xs font-mono text-slate-400 mt-0.5">{host} &bull; {boardName} ({version})</p>
           </div>
@@ -176,6 +202,27 @@ export default function DeviceDetail() {
         <div className="flex items-center gap-2">
           {isAdmin && (
             <>
+              {device?.is_snoozed ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUnsnooze}
+                  className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs"
+                >
+                  <BellRing className="h-3.5 w-3.5 mr-1.5 text-amber-400" />
+                  Akhiri Maintenance
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSnoozeModalOpen(true)}
+                  className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
+                >
+                  <BellOff className="h-3.5 w-3.5 mr-1.5 text-amber-400" />
+                  Snooze Alert
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -211,6 +258,34 @@ export default function DeviceDetail() {
           </Button>
         </div>
       </div>
+
+      {device?.is_snoozed && (
+        <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+          <div className="flex items-center gap-2.5">
+            <BellOff className="h-4 w-4 text-amber-400 shrink-0" />
+            <div>
+              <span className="font-semibold text-amber-300">Mode Maintenance Aktif:</span>{' '}
+              <span>{device.snooze_reason || 'Pemeliharaan Terjadwal'}</span>
+              {device.snooze_until && (
+                <span className="text-amber-400/80 ml-1.5 font-mono text-[11px]">
+                  (hingga {new Date(device.snooze_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                </span>
+              )}
+            </div>
+          </div>
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleUnsnooze}
+              className="h-7 px-2.5 border-amber-500/40 bg-amber-950/40 text-amber-300 hover:bg-amber-500/20 text-xs shrink-0"
+            >
+              <BellRing className="h-3.5 w-3.5 mr-1" />
+              Akhiri Maintenance
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Metric Highlights */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
@@ -354,6 +429,17 @@ export default function DeviceDetail() {
           >
             <Zap className="h-4 w-4 text-amber-400" />
             Remediasi & Aksi ({remediationLogs.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('syslog')}
+            className={`pb-3 transition-colors flex items-center gap-2 ${
+              activeTab === 'syslog' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ScrollText className="h-4 w-4" />
+            Syslog ({deviceSyslogData?.total ?? 0})
           </button>
 
           <button
@@ -713,7 +799,70 @@ export default function DeviceDetail() {
           </div>
         )}
 
-        {/* Tab 5: AI Troubleshooting */}
+        {/* Tab 5: Syslog Device Stream */}
+        {activeTab === 'syslog' && (
+          <Card className="border-slate-800 bg-slate-950 rounded-xl overflow-hidden font-mono shadow-2xl">
+            <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+              <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                <Terminal className="h-3.5 w-3.5 text-cyan-400" />
+                Syslog Real-Time: {deviceName} ({host})
+              </span>
+              <span className="text-[11px] font-sans text-slate-500">
+                {deviceSyslogData?.items?.length ?? 0} log terbaru
+              </span>
+            </div>
+
+            <div className="p-4 max-h-[500px] overflow-y-auto space-y-1.5 text-xs text-slate-300">
+              {!deviceSyslogData?.items || deviceSyslogData.items.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 space-y-2 font-sans">
+                  <ScrollText className="h-8 w-8 mx-auto text-slate-600 mb-2" />
+                  <p className="font-semibold text-slate-400 text-sm">Belum ada paket Syslog dari perangkat ini</p>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Arahkan remote logging MikroTik ke server NOVA (port 514 UDP) untuk melihat log live di sini.
+                  </p>
+                </div>
+              ) : (
+                deviceSyslogData.items.map((log) => {
+                  const s = log.severity.toUpperCase();
+                  const sevClass = 
+                    s === 'EMERGENCY' || s === 'CRITICAL' || s === 'ALERT' ? 'bg-red-500/10 text-red-400 border-red-500/30' :
+                    s === 'ERROR' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                    s === 'WARNING' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                    s === 'NOTICE' || s === 'INFO' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' :
+                    'bg-slate-800 text-slate-400 border-slate-700';
+
+                  const formattedTime = new Date(log.timestamp).toLocaleTimeString([], {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                  });
+
+                  return (
+                    <div 
+                      key={log.id} 
+                      className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-2.5 p-1.5 rounded hover:bg-slate-900/60 transition-colors border-l-2 border-transparent hover:border-cyan-500/50"
+                    >
+                      <span className="text-[11px] text-slate-500 shrink-0 select-none">
+                        {formattedTime}
+                      </span>
+                      <Badge variant="outline" className={`text-[9px] uppercase font-mono px-1.5 py-0 shrink-0 ${sevClass}`}>
+                        {log.severity}
+                      </Badge>
+                      {log.topic && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 text-amber-300/80 border border-slate-800 shrink-0">
+                          {log.topic}
+                        </span>
+                      )}
+                      <span className="text-slate-200 break-words flex-1 selection:bg-cyan-500/30 selection:text-white">
+                        {log.message}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
+        )}
+
+        {/* Tab 6: AI Troubleshooting */}
         {activeTab === 'ai' && (
           <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
             <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-800">
@@ -759,6 +908,13 @@ export default function DeviceDetail() {
         device={device || null}
         open={isEditModalOpen}
         onOpenChange={setIsEditModalOpen}
+        onSuccess={() => refetchDevice()}
+      />
+
+      <SnoozeDeviceModal
+        device={device || null}
+        open={isSnoozeModalOpen}
+        onOpenChange={setIsSnoozeModalOpen}
         onSuccess={() => refetchDevice()}
       />
     </div>

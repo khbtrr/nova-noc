@@ -97,8 +97,15 @@ export default function DeviceList({ devices }: DeviceListProps) {
                       )} />
                     </TableCell>
                     <TableCell>
-                      <div className="font-semibold text-xs sm:text-sm text-slate-100 group-hover:text-cyan-400 transition-colors">
-                        {device.name}
+                      <div className="flex items-center gap-2">
+                        <div className="font-semibold text-xs sm:text-sm text-slate-100 group-hover:text-cyan-400 transition-colors">
+                          {device.name}
+                        </div>
+                        {device.is_snoozed && (
+                          <Badge variant="outline" className="text-[9px] uppercase font-mono text-amber-400 border-amber-500/40 bg-amber-500/10 py-0 px-1.5">
+                            MAINTENANCE
+                          </Badge>
+                        )}
                       </div>
                       <span className="text-[10px] text-slate-500 font-mono">
                         Port: {device.port || (device.device_type === 'MIKROTIK' ? 8728 : 161)}

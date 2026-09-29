@@ -15,6 +15,7 @@ export interface Alert {
   acknowledged?: boolean;
   acknowledged_by?: string | number;
   acknowledged_at?: string;
+  is_resolved?: boolean;
   resolved_at?: string;
 }
 
