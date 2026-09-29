@@ -5,6 +5,7 @@ import TrafficChart from '@/components/dashboard/TrafficChart';
 import AlertFeed from '@/components/dashboard/AlertFeed';
 import AIInsightPanel from '@/components/dashboard/AIInsightPanel';
 import DualWanPanel from '@/components/dashboard/DualWanPanel';
+import TopTalkersWidget from '@/components/dashboard/TopTalkersWidget';
 import { HistoricalChart } from '@/components/dashboard/HistoricalChart';
 import { TopologyMap } from '@/components/dashboard/TopologyMap';
 import { useDevices } from '@/hooks/useDevices';
@@ -94,13 +95,13 @@ export default function DashboardPage() {
         )}
       </div>
       
-      {/* 3. Traffic & AI & Alerts Grid */}
+      {/* 3. Traffic & Top Talkers */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <TrafficChart />
         </div>
         <div>
-          <AIInsightPanel />
+          <TopTalkersWidget />
         </div>
       </div>
 
@@ -113,6 +114,9 @@ export default function DashboardPage() {
           <AlertFeed />
         </div>
       </div>
+
+      {/* 5. AI Insight Panel */}
+      <AIInsightPanel />
 
       {/* 5. Network Topology Visualizer */}
       <TopologyMap />

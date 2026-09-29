@@ -207,16 +207,33 @@ async def _process_rca_and_notify(
             f"Periksa utilitas interface WAN dan log koneksi perangkat."
         )
 
+    # Fetch Top Talkers snapshot from NetFlow engine if available
+    top_offenders = []
+    flow_section = ""
+    try:
+        from app.services.flow.flow_service import get_current_spike_top_talkers
+        top_offenders = get_current_spike_top_talkers(limit=5)
+        if top_offenders and anomaly_data["type"] == "TRAFFIC_SPIKE":
+            offenders_lines = [
+                f"  {idx+1}. `{o['ip']}` ({o.get('hostname') or 'Klien'}): *{o.get('mbps', 0):.1f} Mbps* ({o.get('percent_share', 0)}%)"
+                for idx, o in enumerate(top_offenders)
+            ]
+            flow_section = "\n\n📊 *Top IP Terdeteksi Saat Insiden (Traffic Flow):*\n" + "\n".join(offenders_lines) + "\n_Tindakan: Silakan verifikasi via Winbox untuk manajemen queue/firewall._"
+    except Exception as fe:
+        logger.debug(f"[NOVA Sight] Could not fetch flow top talkers: {fe}")
+
     # Update in memory
     if device_id in _active_anomalies:
         _active_anomalies[device_id]["rca_analysis"] = rca_text
+        _active_anomalies[device_id]["top_talkers"] = top_offenders
 
     # 1. Broadcast via WebSocket
     ws_payload = json.dumps({
         "event": "traffic_anomaly",
         "data": {
             **anomaly_data,
-            "rca_analysis": rca_text
+            "rca_analysis": rca_text,
+            "top_talkers": top_offenders
         }
     })
     await manager.broadcast(ws_payload)
@@ -227,7 +244,8 @@ async def _process_rca_and_notify(
         f"Perangkat: *{device_name}* (ID #{device_id})\n"
         f"Tipe: *{anomaly_data['type']}* ({anomaly_data['severity']})\n"
         f"Throughput Saat Ini: *{anomaly_data['current_mbps']} Mbps*\n"
-        f"Rata-rata Baseline: *{anomaly_data['baseline_mbps']} Mbps* (Deviasi: *{anomaly_data['deviation_percent']}%*)\n\n"
+        f"Rata-rata Baseline: *{anomaly_data['baseline_mbps']} Mbps* (Deviasi: *{anomaly_data['deviation_percent']}%*)"
+        f"{flow_section}\n\n"
         f"🧠 *Analisis Akar Masalah (Gemini AI RCA):*\n"
         f"{rca_text}"
     )

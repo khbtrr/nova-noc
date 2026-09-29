@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     
     FERNET_SECRET_KEY: str = ""
     SYSLOG_UDP_PORT: int = 514
+    NETFLOW_UDP_PORT: int = 2055
+    NETFLOW_ENABLED: bool = True
 
 
     class Config:

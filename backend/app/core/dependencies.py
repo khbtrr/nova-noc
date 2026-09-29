@@ -21,7 +21,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
     
-    result = await db.execute(select(User).filter(User.id == int(user_id)))
+    try:
+        uid = int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token user id")
+
+    result = await db.execute(select(User).filter(User.id == uid))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")

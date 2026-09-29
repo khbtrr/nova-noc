@@ -64,6 +64,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
       - "${SYSLOG_PORT:-514}:514/udp"
+      - "${NETFLOW_PORT:-2055}:2055/udp"
     volumes:
       - ./backend/app:/app/app  # Hot reload in development
     depends_on:

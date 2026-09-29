@@ -67,6 +67,12 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Syslog receiver could not start: {e}")
 
     try:
+        from app.services.flow.flow_service import start_flow_receiver, stop_flow_receiver
+        await start_flow_receiver()
+    except Exception as e:
+        logger.warning(f"NetFlow receiver could not start: {e}")
+
+    try:
         from app.notifications.telegram_worker import start_telegram_worker, stop_telegram_worker
         await start_telegram_worker()
     except Exception as e:
@@ -74,6 +80,12 @@ async def lifespan(app: FastAPI):
     
     yield
     
+    try:
+        from app.services.flow.flow_service import stop_flow_receiver
+        stop_flow_receiver()
+    except Exception as e:
+        logger.warning(f"Error stopping NetFlow receiver: {e}")
+
     try:
         from app.services.syslog_service import stop_syslog_server
         stop_syslog_server()

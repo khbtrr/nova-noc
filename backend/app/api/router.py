@@ -9,6 +9,7 @@ from app.api.topology import router as topology_router
 from app.api.remediation import router as remediation_router
 from app.api.users import router as users_router
 from app.api.syslog import router as syslog_router
+from app.api.flow import router as flow_router
 
 api_router = APIRouter()
 
@@ -22,5 +23,6 @@ api_router.include_router(settings_router, prefix="/settings", tags=["settings"]
 api_router.include_router(topology_router, prefix="/topology", tags=["topology"])
 api_router.include_router(remediation_router, prefix="/remediation", tags=["remediation"])
 api_router.include_router(syslog_router, prefix="/syslog", tags=["syslog"])
+api_router.include_router(flow_router, prefix="/flow", tags=["flow"])
 
 
