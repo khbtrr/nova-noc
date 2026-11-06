@@ -1,210 +1,183 @@
-import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { useQuery } from '@tanstack/react-query';
-import { settingsApi } from '@/services/settingsApi';
-import { useAuthStore } from '@/stores/authStore';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Settings, Send, Bot, Shield, Server, CheckCircle2, AlertCircle } from 'lucide-react';
-import UserManagementCard from '@/components/settings/UserManagementCard';
+import { Send, Key, Clock, ShieldCheck, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { settingsApi, SystemSettingsData } from '@/services/settingsApi';
+import { useAuthStore } from '@/stores/authStore';
+import { UserManagementCard } from '@/components/settings/UserManagementCard';
 
-
-export default function SettingsPage() {
-
+export const SettingsPage: React.FC = () => {
   const { user } = useAuthStore();
-  const [testMessage, setTestMessage] = useState('🔔 Test notifikasi NOVA NOC: Bot Telegram siap digunakan!');
-  const [isSendingTest, setIsSendingTest] = useState(false);
+  const isAdmin = user?.role === 'admin';
+  const [settings, setSettings] = useState<SystemSettingsData | null>(null);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
 
-  const { data: systemSettings, isLoading, refetch } = useQuery({
-    queryKey: ['system-settings'],
-    queryFn: settingsApi.getSettings,
-  });
+  useEffect(() => {
+    settingsApi.getSettings().then(setSettings).catch(() => {});
+  }, []);
 
-  const handleSendTelegramTest = async () => {
-    setIsSendingTest(true);
+  const handleTestTelegram = async () => {
+    setIsTestingTelegram(true);
     try {
-      const res = await settingsApi.testTelegram(testMessage);
-      toast.success(res.message || 'Pesan tes Telegram berhasil dikirim!');
+      const res = await settingsApi.testTelegram('[NOVA NOC] Pesan uji koneksi dari Dashboard NOVA berhasil terkirim.');
+      toast.success(res.message);
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Gagal mengirim pesan Telegram. Pastikan bot token terkonfigurasi.');
+      const msg = err?.response?.data?.detail || 'Gagal mengirim pesan tes Telegram. Periksa konfigurasi .env Anda.';
+      toast.error(msg);
     } finally {
-      setIsSendingTest(false);
+      setIsTestingTelegram(false);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-5xl pb-12">
+    <div className="space-y-6 max-w-4xl">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-2">
-          <Settings className="h-6 w-6 text-cyan-400" />
-          Pengaturan Sistem NOVA
-        </h2>
-        <p className="text-sm text-slate-400">
-          Konfigurasi bot Telegram, model AI Gemini, polling interval, dan preferensi akun operasional.
-        </p>
+        <h1 className="text-2xl font-bold text-slate-100 tracking-tight">Pengaturan Sistem</h1>
+        <p className="text-sm text-slate-400">Konfigurasi mesin polling, integrasi notifikasi, dan kredensial AI</p>
       </div>
 
-      <div className="grid gap-6">
-        {/* 1. Telegram Bot Integration */}
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
+      {isAdmin && <UserManagementCard />}
+
+      <div className="grid grid-cols-1 gap-6">
+        <Card className="bg-slate-900 border-slate-800/80">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-                <Send className="h-4 w-4 text-cyan-400" />
-                Notifikasi Bot Telegram
-              </CardTitle>
-              {systemSettings?.telegram_configured ? (
-                <Badge variant="success" className="text-[10px] flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Terhubung
-                </Badge>
-              ) : (
-                <Badge variant="warning" className="text-[10px] flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" /> Belum Dikonfigurasi
-                </Badge>
-              )}
-            </div>
+            <CardTitle className="text-base text-slate-100 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-cyan-400" /> Konfigurasi Mesin Polling
+            </CardTitle>
             <CardDescription className="text-xs text-slate-400">
-              Kirim alert instan ketika terjadi insiden link down, CPU overload, atau memory leak ke channel/grup Telegram tim NOC.
+              Pengaturan pengumpulan telemetri global untuk perangkat MikroTik & SNMP
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-slate-300 font-medium">Chat ID Terdaftar</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Interval Polling Default (detik)</Label>
                 <Input
+                  type="number"
+                  value={settings?.default_poll_interval ?? 30}
                   disabled
-                  value={systemSettings?.telegram_chat_id || '(Dikonfigurasi via .env)'}
-                  className="bg-slate-950 border-slate-800 text-xs font-mono mt-1 text-slate-400"
+                  className="bg-slate-950/60 border-slate-800 text-slate-300 font-mono min-h-[44px]"
                 />
+                <p className="text-[11px] text-slate-400">Diatur melalui variabel <code className="text-cyan-400">DEFAULT_POLL_INTERVAL</code> pada file <code className="text-cyan-400">.env</code></p>
               </div>
-              <div>
-                <label className="text-xs text-slate-300 font-medium">Status Pengiriman</label>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Mode Operasi</Label>
                 <Input
+                  type="text"
+                  value={settings?.debug_mode ? 'Development / Debug' : 'Production'}
                   disabled
-                  value={systemSettings?.telegram_configured ? 'Aktif (Auto-dispatch)' : 'Non-aktif'}
-                  className="bg-slate-950 border-slate-800 text-xs mt-1 text-slate-400"
+                  className="bg-slate-950/60 border-slate-800 text-slate-300 font-mono min-h-[44px]"
                 />
-              </div>
-            </div>
-
-            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
-              <label className="text-xs text-slate-300 font-medium">Uji Coba Kirim Notifikasi Telegram</label>
-              <div className="flex gap-2">
-                <Input
-                  value={testMessage}
-                  onChange={(e) => setTestMessage(e.target.value)}
-                  placeholder="Ketik pesan tes..."
-                  className="bg-slate-900 border-slate-800 text-xs"
-                />
-                <Button
-                  size="sm"
-                  onClick={handleSendTelegramTest}
-                  disabled={isSendingTest}
-                  className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs shrink-0"
-                >
-                  <Send className="h-3.5 w-3.5 mr-1" />
-                  {isSendingTest ? 'Mengirim...' : 'Kirim Tes'}
-                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* 2. AI Model Status (Gemini) */}
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
+        <Card className="bg-slate-900 border-slate-800/80">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-                <Bot className="h-4 w-4 text-purple-400" />
-                Google Gemini AI Model Engine
-              </CardTitle>
-              {systemSettings?.gemini_configured ? (
-                <Badge variant="success" className="text-[10px]">
-                  Gemini 2.5 Flash Siap
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="text-[10px]">
-                  Mode Heuristik Offline
-                </Badge>
+              <div>
+                <CardTitle className="text-base text-slate-100 flex items-center gap-2">
+                  <Send className="h-4 w-4 text-sky-400" /> Integrasi Bot Telegram
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-400">
+                  Pengiriman notifikasi peringatan real-time ke grup operasional NOC
+                </CardDescription>
+              </div>
+              {settings && (
+                <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${settings.telegram_configured ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                  {settings.telegram_configured ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                  {settings.telegram_configured ? 'Terkonfigurasi' : 'Belum Diatur'}
+                </div>
               )}
             </div>
-            <CardDescription className="text-xs text-slate-400">
-              Mesin kecerdasan buatan untuk inferensi anomali, kalkulasi health score, dan percakapan interaktif troubleshooting.
-            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-slate-300">
-            <p>
-              Untuk mengaktifkan model generatif mutakhir Gemini 2.5 Flash, masukkan <code className="text-cyan-400 bg-slate-950 px-1 py-0.5 rounded">GEMINI_API_KEY</code> pada file <code className="text-slate-200">.env</code> Anda.
-            </p>
-            <p className="text-slate-400">
-              Saat ini sistem menggunakan engine analisa diagnostik telemetri internal dengan komputasi skor kesehatan 0-100 real-time.
-            </p>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Status Bot Token</Label>
+                <Input
+                  type="text"
+                  value={settings?.telegram_configured ? 'Tersimpan di Server (.env)' : 'Belum diatur di .env'}
+                  disabled
+                  className="bg-slate-950/60 border-slate-800 text-slate-400 font-mono min-h-[44px]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Target Chat ID</Label>
+                <Input
+                  value={settings?.telegram_chat_id || 'Belum diatur'}
+                  disabled
+                  className="bg-slate-950/60 border-slate-800 text-slate-300 font-mono min-h-[44px]"
+                />
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+              <p className="text-xs text-slate-400">
+                Ubah <code className="text-cyan-400">TELEGRAM_BOT_TOKEN</code> & <code className="text-cyan-400">TELEGRAM_CHAT_ID</code> pada file <code className="text-cyan-400">.env</code>
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isTestingTelegram || !settings?.telegram_configured}
+                onClick={handleTestTelegram}
+                className="min-h-[44px] border-sky-500/30 text-sky-400 hover:bg-sky-500/10"
+              >
+                {isTestingTelegram ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                Kirim Pesan Tes ke Telegram
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
-        {/* 3. Monitoring Engine Config */}
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
+        <Card className="bg-slate-900 border-slate-800/80">
           <CardHeader>
-            <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-              <Server className="h-4 w-4 text-cyan-400" />
-              Parameter Engine Polling
-            </CardTitle>
-            <CardDescription className="text-xs text-slate-400">
-              Konfigurasi siklus interval pengambilan data dari perangkat jaringan.
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base text-slate-100 flex items-center gap-2">
+                  <Key className="h-4 w-4 text-cyan-400" /> Konfigurasi Google Gemini AI
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-400">
+                  Kredensial LLM untuk diagnostik otomatis dan asisten percakapan NOC
+                </CardDescription>
+              </div>
+              {settings && (
+                <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${settings.gemini_configured ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'}`}>
+                  {settings.gemini_configured ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  {settings.gemini_configured ? 'Gemini API Aktif' : 'Mode Diagnostik Lokal'}
+                </div>
+              )}
+            </div>
           </CardHeader>
-          <CardContent className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs text-slate-300 font-medium">Default Polling Interval</label>
-              <Input
-                disabled
-                value={`${systemSettings?.default_poll_interval || 30} Detik (Configurable per-device)`}
-                className="bg-slate-950 border-slate-800 text-xs mt-1 text-slate-400"
-              />
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-slate-300">Status Gemini API Key</Label>
+                <Input
+                  type="text"
+                  value={settings?.gemini_configured ? 'Terkonfigurasi di Server (.env)' : 'Menggunakan Diagnostik Lokal'}
+                  disabled
+                  className="bg-slate-950/60 border-slate-800 text-slate-400 font-mono min-h-[44px]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-slate-300">Model Aktif</Label>
+                <Input
+                  value="gemini-2.5-flash"
+                  disabled
+                  className="bg-slate-950/60 border-slate-800 text-slate-300 font-mono min-h-[44px]"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-slate-300 font-medium">Protokol Didukung</label>
-              <Input
-                disabled
-                value="MikroTik RouterOS API (TCP 8728) & SNMP v2c/v3 (UDP 161)"
-                className="bg-slate-950 border-slate-800 text-xs mt-1 text-slate-400"
-              />
-            </div>
+            <p className="text-xs text-slate-400">
+              Atur <code className="text-cyan-400">GEMINI_API_KEY</code> pada file <code className="text-cyan-400">.env</code> di server backend untuk mengaktifkan analisis generatif penuh.
+            </p>
           </CardContent>
         </Card>
-
-        {/* 4. Operator Profile */}
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-              <Shield className="h-4 w-4 text-emerald-400" />
-              Profil Akun NOC Operator
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid sm:grid-cols-3 gap-4">
-            <div>
-              <span className="text-xs text-slate-400 block">Username</span>
-              <span className="text-sm font-semibold text-slate-100 mt-1 block">{user?.username || 'admin'}</span>
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 block">Hak Akses (Role)</span>
-              <Badge variant="outline" className="mt-1 text-xs border-cyan-500/30 text-cyan-400 uppercase">
-                {user?.role || 'ADMIN'}
-              </Badge>
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 block">Email Kontak</span>
-              <span className="text-sm text-slate-300 mt-1 block">{user?.email || 'admin@nova.local'}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 5. User Management (Admin Only) */}
-        {user?.role === 'admin' && <UserManagementCard />}
       </div>
     </div>
   );
-}
-
+};

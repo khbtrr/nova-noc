@@ -1,282 +1,178 @@
 import React, { useState, useEffect } from 'react';
+import { Edge } from '@xyflow/react';
+import { X, Cable, Trash2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Network, Trash2, X, Cable, Zap } from 'lucide-react';
-
-export interface EdgeModalData {
-  id?: string;
-  source: string;
-  target: string;
-  sourceLabel?: string;
-  targetLabel?: string;
-  label?: string;
-  mediaType?: 'fiber' | 'ethernet' | 'wan' | 'wireless';
-  animated?: boolean;
-  isNew?: boolean;
-}
 
 interface EditEdgeModalProps {
-  isOpen: boolean;
-  data: EdgeModalData | null;
+  open: boolean;
+  edge: Edge | null;
   onClose: () => void;
-  onSave: (edgeData: {
-    id?: string;
-    source: string;
-    target: string;
-    label: string;
-    mediaType: 'fiber' | 'ethernet' | 'wan' | 'wireless';
-    animated: boolean;
-    style: Record<string, any>;
-  }) => void;
-  onDelete?: (edgeId: string) => void;
+  onSave: (edgeId: string, updated: { label: string; stroke: string; strokeWidth: number; animated: boolean }) => void;
+  onDelete: (edgeId: string) => void;
 }
 
+const COLOR_PRESETS = [
+  { label: '10G SFP+ Fiber (Cyan)', value: '#06b6d4', width: 2.5, animated: true },
+  { label: '1G Trunk / Copper (Sky)', value: '#38bdf8', width: 1.5, animated: false },
+  { label: 'PoE / Access Link (Emerald)', value: '#10b981', width: 1.5, animated: false },
+  { label: 'Backup / Tunnel (Amber)', value: '#eab308', width: 1.5, animated: false },
+];
+
 export const EditEdgeModal: React.FC<EditEdgeModalProps> = ({
-  isOpen,
-  data,
+  open,
+  edge,
   onClose,
   onSave,
   onDelete,
 }) => {
   const [label, setLabel] = useState('');
-  const [mediaType, setMediaType] = useState<'fiber' | 'ethernet' | 'wan' | 'wireless'>('ethernet');
+  const [stroke, setStroke] = useState('#38bdf8');
+  const [strokeWidth, setStrokeWidth] = useState(1.5);
   const [animated, setAnimated] = useState(false);
 
   useEffect(() => {
-    if (data) {
-      setLabel(data.label || '');
-      setMediaType(data.mediaType || 'ethernet');
-      setAnimated(Boolean(data.animated));
+    if (edge) {
+      setLabel(typeof edge.label === 'string' ? edge.label : '');
+      setStroke((edge.style?.stroke as string) || '#38bdf8');
+      setStrokeWidth(Number(edge.style?.strokeWidth) || 1.5);
+      setAnimated(Boolean(edge.animated));
     }
-  }, [data]);
+  }, [edge]);
 
-  // Handle escape key to close modal
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  if (!open || !edge) return null;
 
-  if (!isOpen || !data) return null;
-
-  const getStyleForMedia = (type: 'fiber' | 'ethernet' | 'wan' | 'wireless') => {
-    switch (type) {
-      case 'fiber':
-        return { stroke: '#06b6d4', strokeWidth: 2 };
-      case 'wan':
-        return { stroke: '#10b981', strokeWidth: 2 };
-      case 'wireless':
-        return { stroke: '#a855f7', strokeWidth: 1.5 };
-      case 'ethernet':
-      default:
-        return { stroke: '#38bdf8', strokeWidth: 1.5 };
-    }
-  };
-
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
-      id: data.id,
-      source: data.source,
-      target: data.target,
+    onSave(edge.id, {
       label: label.trim(),
-      mediaType,
+      stroke,
+      strokeWidth,
       animated,
-      style: getStyleForMedia(mediaType),
     });
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <Card className="w-full max-w-md border-slate-800 bg-slate-900 text-slate-100 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <Cable className="h-4 w-4" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950/50">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+              <Cable className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-100">
-                {data.isNew ? 'Hubungkan Perangkat Baru' : 'Sesuaikan Sambungan Kabel'}
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Konfigurasi kabel fisik antar perangkat jaringan
+              <h3 className="text-base font-bold text-slate-100">Edit Kabel / Koneksi Link</h3>
+              <p className="text-xs text-slate-400 font-mono truncate max-w-[260px]">
+                {edge.source} ke {edge.target}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            aria-label="Tutup modal"
+            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Content Form */}
-        <form onSubmit={handleFormSubmit} className="p-5 space-y-4 text-xs">
-          {/* Endpoint Connection Banner */}
-          <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 flex items-center justify-between gap-3 text-slate-300">
-            <div className="flex-1 truncate">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Sumber (Parent)</div>
-              <div className="text-xs font-semibold text-cyan-300 truncate" title={data.sourceLabel || data.source}>
-                {data.sourceLabel || data.source}
-              </div>
-            </div>
-            <div className="text-slate-500">→</div>
-            <div className="flex-1 truncate text-right">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Tujuan (Child)</div>
-              <div className="text-xs font-semibold text-sky-300 truncate" title={data.targetLabel || data.target}>
-                {data.targetLabel || data.target}
-              </div>
-            </div>
-          </div>
-
-          {/* Label / Port Input */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">
-              Label Port / Keterangan Link
+            <label className="block text-slate-300 font-semibold mb-1.5">
+              Nama Interface / Keterangan Kabel
             </label>
             <input
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Contoh: Port 24 (UTP Cat6), SFP+ 10G Trunk, PoE..."
-              className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              placeholder="Contoh: sfp-sfpplus1 (10G Fiber)"
+              className="w-full min-h-[44px] px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-100 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
             />
           </div>
 
-          {/* Media Type Selector */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">
-              Tipe Media & Warna Kabel
+            <label className="block text-slate-300 font-semibold mb-2">
+              Tipe & Warna Jalur Koneksi
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setMediaType('fiber')}
-                className={`flex items-center gap-2 p-2.5 rounded-lg border text-left transition-colors ${
-                  mediaType === 'fiber'
-                    ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
-                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <span className="h-2.5 w-2.5 rounded-full bg-cyan-400"></span>
-                <div>
-                  <div className="font-semibold text-slate-200">Fiber Optic 10G</div>
-                  <div className="text-[10px] text-slate-400">Cyan Glow (Trunk SFP+)</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMediaType('ethernet')}
-                className={`flex items-center gap-2 p-2.5 rounded-lg border text-left transition-colors ${
-                  mediaType === 'ethernet'
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-300'
-                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <span className="h-2.5 w-2.5 rounded-full bg-sky-400"></span>
-                <div>
-                  <div className="font-semibold text-slate-200">Ethernet 1G UTP</div>
-                  <div className="text-[10px] text-slate-400">Sky Blue (Switch Distribution)</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMediaType('wan')}
-                className={`flex items-center gap-2 p-2.5 rounded-lg border text-left transition-colors ${
-                  mediaType === 'wan'
-                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
-                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
-                <div>
-                  <div className="font-semibold text-slate-200">WAN Uplink</div>
-                  <div className="text-[10px] text-slate-400">Emerald (JLM / ION ISP)</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMediaType('wireless')}
-                className={`flex items-center gap-2 p-2.5 rounded-lg border text-left transition-colors ${
-                  mediaType === 'wireless'
-                    ? 'border-purple-500 bg-purple-500/10 text-purple-300'
-                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <span className="h-2.5 w-2.5 rounded-full bg-purple-400"></span>
-                <div>
-                  <div className="font-semibold text-slate-200">Wireless / AP Link</div>
-                  <div className="text-[10px] text-slate-400">Purple (Access Point)</div>
-                </div>
-              </button>
+            <div className="space-y-1.5">
+              {COLOR_PRESETS.map((preset) => {
+                const isSelected = stroke.toLowerCase() === preset.value.toLowerCase();
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => {
+                      setStroke(preset.value);
+                      setStrokeWidth(preset.width);
+                      setAnimated(preset.animated);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 min-h-[44px] rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${
+                      isSelected
+                        ? 'border-cyan-500/50 bg-slate-800 text-slate-100'
+                        : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className="h-3 w-6 rounded-full"
+                        style={{ backgroundColor: preset.value }}
+                      />
+                      <span className="font-medium">{preset.label}</span>
+                    </div>
+                    {isSelected && <Check className="h-3.5 w-3.5 text-cyan-400" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Animated Toggle */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 p-3">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-cyan-400" />
-              <div>
-                <div className="font-semibold text-slate-200">Animasi Aliran Trafik</div>
-                <div className="text-[10px] text-slate-400">Tampilkan titik bergerak di kabel</div>
-              </div>
+          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-950/60 border border-slate-800">
+            <div>
+              <div className="font-semibold text-slate-200">Animasi Aliran Paket</div>
+              <div className="text-[11px] text-slate-400">Tampilkan garis putus-putus bergerak</div>
             </div>
             <input
               type="checkbox"
               checked={animated}
               onChange={(e) => setAnimated(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-cyan-600 focus:ring-cyan-500"
+              aria-label="Animasi aliran paket"
+              className="h-5 w-5 accent-cyan-500 rounded cursor-pointer"
             />
           </div>
 
-          {/* Action Buttons */}
-          <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-800">
-            {data.id && onDelete ? (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={() => onDelete(data.id!)}
-                className="bg-rose-950 text-rose-300 hover:bg-rose-900 border border-rose-800 text-xs flex items-center gap-1.5"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Hapus Kabel
-              </Button>
-            ) : (
-              <div></div>
-            )}
+          <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onDelete(edge.id);
+                onClose();
+              }}
+              className="min-h-[44px] border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Hapus Garis Ini
+            </Button>
 
             <div className="flex items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
                 onClick={onClose}
-                className="border-slate-700 text-slate-300 hover:bg-slate-800 text-xs"
+                className="min-h-[44px] border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
               >
                 Batal
               </Button>
               <Button
                 type="submit"
-                size="sm"
-                className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium"
+                className="min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold"
               >
-                {data.isNew ? 'Pasang Sambungan' : 'Simpan Perubahan'}
+                Simpan
               </Button>
             </div>
           </div>
         </form>
-      </Card>
+      </div>
     </div>
   );
 };

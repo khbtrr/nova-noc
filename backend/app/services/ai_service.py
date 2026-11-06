@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from app.config import settings
 
 logger = logging.getLogger("nova.ai_service")
@@ -15,30 +15,35 @@ Tugas Anda:
 5. Menjawab dalam Bahasa Indonesia dengan format rapi dan profesional (gunakan bullet points, markdown bold/code bila relevan).
 """
 
-CANDIDATE_MODELS = [
-    'gemini-flash-latest',
-    'gemini-3.8-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-flash-lite-latest',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
-]
+def _get_candidate_models() -> List[str]:
+    models = [
+        settings.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+    ]
+    seen = set()
+    ordered = []
+    for m in models:
+        if m and m not in seen:
+            seen.add(m)
+            ordered.append(m)
+    return ordered
 
 def get_gemini_model():
-    """Dynamically get Gemini GenerativeModel if GEMINI_API_KEY is configured."""
     key = settings.GEMINI_API_KEY
     if not key or key == "your-gemini-api-key-here" or len(key) < 10:
         return None
     try:
         import google.generativeai as genai
         genai.configure(api_key=key)
-        return genai.GenerativeModel(CANDIDATE_MODELS[0], system_instruction=SYSTEM_PROMPT)
+        return genai.GenerativeModel(_get_candidate_models()[0], system_instruction=SYSTEM_PROMPT)
     except Exception as e:
         logger.warning(f"Failed to configure Gemini model: {e}")
         return None
 
 def _generate_with_gemini(prompt: str, system_instruction: str = SYSTEM_PROMPT) -> Optional[str]:
-    """Execute Gemini generate_content with automatic model fallback across candidate models."""
     key = settings.GEMINI_API_KEY
     if not key or key == "your-gemini-api-key-here" or len(key) < 10:
         return None
@@ -51,7 +56,7 @@ def _generate_with_gemini(prompt: str, system_instruction: str = SYSTEM_PROMPT) 
         return None
 
     last_error = None
-    for model_name in CANDIDATE_MODELS:
+    for model_name in _get_candidate_models():
         try:
             m = genai.GenerativeModel(model_name, system_instruction=system_instruction)
             response = m.generate_content(prompt)
@@ -65,20 +70,18 @@ def _generate_with_gemini(prompt: str, system_instruction: str = SYSTEM_PROMPT) 
     logger.warning(f"All Gemini candidate models failed. Last error: {last_error}")
     return None
 
-
 def _heuristic_health_score(metrics: Dict[str, Any]) -> int:
-    """Calculate health score 0-100 based on core metrics."""
     score = 100
     cpu = float(metrics.get("cpu_load", 0) or 0)
     mem = float(metrics.get("memory_usage", 0) or 0)
-    
+
     if cpu > 90:
         score -= 40
     elif cpu > 75:
         score -= 20
     elif cpu > 50:
         score -= 10
-        
+
     if mem > 90:
         score -= 35
     elif mem > 80:
@@ -92,28 +95,81 @@ def _heuristic_health_score(metrics: Dict[str, Any]) -> int:
 
     return max(0, min(100, score))
 
-def _fallback_analysis(data_summary: str) -> str:
-    """Provide realistic, high-quality NOC diagnostic analysis when Gemini is offline."""
-    return f"""### 🛰️ Laporan Analisis NOVA AI Assistant
+def _fallback_analysis(data_input: Union[str, List[Dict[str, Any]], Dict[str, Any]]) -> str:
+    """Generate a deterministic diagnostic summary derived strictly from actual device telemetry."""
+    devices: List[Dict[str, Any]] = []
+    if isinstance(data_input, list):
+        devices = [d for d in data_input if isinstance(d, dict)]
+    elif isinstance(data_input, dict):
+        devices = [data_input]
 
-**Status Ringkasan:**
-Analisis metrik perangkat jaringan telah dievaluasi berdasarkan data telemetri real-time.
+    if not devices:
+        return (
+            "### Laporan Diagnostik Deterministik NOVA AI\n\n"
+            "**Status Mesin Analitik:** Mode evaluasi lokal aktif (kunci API Gemini belum dikonfigurasi atau tidak terjangkau).\n\n"
+            "**Temuan Aktual:**\n"
+            "- Data metrik perangkat spesifik belum tersedia pada permintaan ini.\n\n"
+            "**Rekomendasi Tindakan:**\n"
+            "1. Pastikan kolektor perangkat aktif dan perangkat terhubung ke jaringan.\n"
+            "2. Konfigurasikan `GEMINI_API_KEY` pada file `.env` untuk mengaktifkan evaluasi bahasa alami."
+        )
 
-**Temuan Utama & Indikasi:**
-- **Beban CPU & Memori:** Sebagian besar perangkat berada dalam rentang operasi stabil. Perhatikan perangkat dengan utilisasi CPU di atas 70% selama jam sibuk.
-- **Traffic & Bandwidth:** Pola lalu lintas interface WAN dan LAN menunjukkan aliran paket normal tanpa lonjakan (spike) abnormal yang mengindikasikan serangan DoS atau loop layer-2.
-- **Status Konektivitas:** Seluruh interface trunk dan uplink utama dalam kondisi `Running (Up)`.
+    total = len(devices)
+    high_cpu_devs = []
+    high_mem_devs = []
+    down_iface_devs = []
+    offline_devs = []
 
-**Rekomendasi Tindakan Troubleshooting:**
-1. Lakukan verifikasi konfigurasi *queue* atau *bandwidth shaping* pada interface WAN untuk mencegah saturasi.
-2. Pantau log DHCP server untuk memastikan ketersediaan pool IP pada subnet klien.
-3. Simpan snapshot backup konfigurasi berkala (*export* / *backup*) pada perangkat core router.
+    for dev in devices:
+        name = dev.get("name") or f"Device #{dev.get('id', '?')}"
+        status_str = str(dev.get("status", "")).upper()
+        metrics = dev.get("metrics") or {}
+        cpu = float(metrics.get("cpu_load", 0) or 0)
+        mem = float(metrics.get("memory_usage", 0) or 0)
+        ifaces = metrics.get("interfaces") or []
+        down_ifaces = [i.get("name", "eth") for i in ifaces if not i.get("running", True) and not i.get("disabled", False)]
 
-*Catatan: Masukkan GEMINI_API_KEY di pengaturan sistem untuk mengaktifkan analisis generatif lanjutan berbasis model Gemini 2.5.*
-"""
+        if status_str == "OFFLINE":
+            offline_devs.append(name)
+        if cpu >= 75:
+            high_cpu_devs.append(f"{name} ({cpu:.0f}%)")
+        if mem >= 80:
+            high_mem_devs.append(f"{name} ({mem:.0f}%)")
+        if down_ifaces:
+            down_iface_devs.append(f"{name} ({len(down_ifaces)} port tidak aktif: {', '.join(down_ifaces[:3])})")
+
+    findings = []
+    if offline_devs:
+        findings.append(f"- **Perangkat Offline ({len(offline_devs)}/{total}):** {', '.join(offline_devs)}.")
+    else:
+        findings.append(f"- **Keterjangkauan Perangkat:** {total} perangkat dievaluasi memiliki telemetri aktif.")
+
+    if high_cpu_devs:
+        findings.append(f"- **Beban CPU Tinggi (>=75%):** {', '.join(high_cpu_devs)}.")
+    else:
+        findings.append("- **Beban CPU:** Seluruh perangkat yang terpantau berada di bawah ambang 75%.")
+
+    if high_mem_devs:
+        findings.append(f"- **Utilisasi Memori Tinggi (>=80%):** {', '.join(high_mem_devs)}.")
+    else:
+        findings.append("- **Utilisasi Memori:** Pemakaian RAM seluruh perangkat berada di bawah ambang 80%.")
+
+    if down_iface_devs:
+        findings.append(f"- **Status Port/Interface:** Terdeteksi link tidak berjalan pada {'; '.join(down_iface_devs)}.")
+
+    findings_block = "\n".join(findings)
+    return (
+        f"### Laporan Diagnostik Deterministik NOVA AI\n\n"
+        f"**Status Mesin Analitik:** Evaluasi berbasis aturan telemetri aktual ({total} perangkat dievaluasi; koneksi LLM Gemini tidak aktif).\n\n"
+        f"**Temuan Aktual:**\n"
+        f"{findings_block}\n\n"
+        f"**Rekomendasi Tindakan:**\n"
+        f"1. Periksa konektivitas fisik dan jalur ICMP pada perangkat atau port yang berstatus offline/down.\n"
+        f"2. Tinjau antrean trafik dan tabel koneksi pada router apabila beban CPU atau memori melewati 75%.\n"
+        f"3. Tambahkan `GEMINI_API_KEY` yang valid pada `.env` jika memerlukan korelasi generatif lanjutan."
+    )
 
 async def analyze_network(devices_data: List[Dict[str, Any]], use_gemini: bool = True) -> Dict[str, Any]:
-    """Analyze all devices and return health scores, summary, and recommendations."""
     overall_scores = []
     analyzed_devices = []
 
@@ -121,7 +177,7 @@ async def analyze_network(devices_data: List[Dict[str, Any]], use_gemini: bool =
         m = dev.get("metrics", {})
         score = _heuristic_health_score(m)
         overall_scores.append(score)
-        
+
         status = "Healthy" if score >= 80 else ("Warning" if score >= 50 else "Critical")
         analyzed_devices.append({
             "device_id": dev.get("id"),
@@ -149,17 +205,14 @@ async def analyze_network(devices_data: List[Dict[str, Any]], use_gemini: bool =
     if use_gemini:
         prompt = f"Analisis data metrik seluruh perangkat NOC berikut dan berikan evaluasi kondisi serta rekomendasi:\n\n{json.dumps(devices_data, indent=2)}"
         ai_res = await asyncio.to_thread(_generate_with_gemini, prompt)
-        if ai_res:
-            summary_text = ai_res
-        else:
-            summary_text = _fallback_analysis(str(devices_data))
+        summary_text = ai_res if ai_res else _fallback_analysis(devices_data)
     else:
-        summary_text = _fallback_analysis(str(devices_data))
+        summary_text = _fallback_analysis(devices_data)
 
     recommendations = [
-        "Jaga utilisasi CPU router di bawah 75% untuk menjaga stabilitas routing BGP/OSPF.",
-        "Pantau pemakaian memori perangkat core untuk mencegah memory leak atau OOM reboot.",
-        "Pastikan alert threshold Telegram aktif untuk mendapatkan notifikasi insiden seketika."
+        "Jaga utilisasi CPU router di bawah 75% untuk menjaga stabilitas routing.",
+        "Pantau pemakaian memori perangkat core untuk mencegah kehabisan memori.",
+        "Pastikan ambang batas alert aktif untuk mendapatkan notifikasi insiden seketika."
     ]
 
     return {
@@ -170,12 +223,11 @@ async def analyze_network(devices_data: List[Dict[str, Any]], use_gemini: bool =
     }
 
 async def analyze_device(device_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Analyze a single device in-depth."""
     score = _heuristic_health_score(device_data.get("metrics", {}))
     prompt = f"Analisis perangkat jaringan spesifik berikut secara teknis:\n\n{json.dumps(device_data, indent=2)}"
     ai_text = await asyncio.to_thread(_generate_with_gemini, prompt)
     if not ai_text:
-        ai_text = _fallback_analysis(str(device_data))
+        ai_text = _fallback_analysis(device_data)
 
     return {
         "device_id": device_data.get("id"),
@@ -184,24 +236,19 @@ async def analyze_device(device_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 async def chat(message: str, context: Optional[str] = None) -> str:
-    """Conversational NOC assistant responding in Indonesian."""
     full_prompt = f"Konteks status jaringan saat ini:\n{context or 'Normal'}\n\nPertanyaan Operator NOC: {message}"
     reply = await asyncio.to_thread(_generate_with_gemini, full_prompt)
     if reply:
         return reply
 
-    # Intelligent fallback responses based on keywords
     msg_lower = message.lower()
     if "cpu" in msg_lower or "beban" in msg_lower:
-        return "Beban CPU yang tinggi (>80%) biasanya disebabkan oleh paket routing berlebihan tanpa fasttrack, rules firewall yang terlalu banyak tanpa urutan optimal, atau proses profiling/logging berlebih. Disarankan mengaktifkan IP FastPath/FastTrack pada MikroTik dan periksa `/tool profile`."
-    elif "memori" in msg_lower or "ram" in msg_lower:
-        return "Penggunaan memori yang tinggi pada router dapat mengindikasikan tabel routing yang besar (misal full BGP routes), DNS cache yang menumpuk, atau user connection tracking yang melebihi batas. Periksa `/ip dns cache flush` atau sesuaikan `ip firewall connection tracking`."
-    elif "troubleshoot" in msg_lower or "masalah" in msg_lower or "down" in msg_lower:
-        return "Langkah troubleshooting standar NOC untuk link down:\n1. **Verifikasi Physical Layer**: Cek status LED port dan link state pada interface (`running=true/false`).\n2. **Ping & Traceroute**: Lakukan uji ICMP dari router ke gateway ISP.\n3. **Cek Log**: Teliti log sistem untuk pesan *link down*, *PPPoE disconnected*, atau *interface flap*.\n4. **DHCP/ARP**: Pastikan ARP table tidak mengalami konflik IP."
-    elif "rekomendasi" in msg_lower or "saran" in msg_lower:
-        return "Rekomendasi umum penguatan NOC NOVA:\n- Aktifkan interval polling 30 detik untuk router gateway.\n- Pasang bot Telegram untuk notifikasi instan ketika terjadi spike CPU >85%.\n- Jadwalkan backup konfigurasi otomatis mingguan."
-    else:
-        return f"Saya NOVA AI Assistant siap membantu Anda memantau dan mengelola infrastruktur jaringan. Anda dapat menanyakan tentang status perangkat, panduan troubleshooting router MikroTik/SNMP, atau analisis metrik traffic. Ada yang spesifik ingin diinvestigasi mengenai pertanyaan Anda: \"{message}\"?"
+        return "[Mode Diagnostik Lokal] Beban CPU tinggi (>80%) umumnya dipicu oleh trafik routing tanpa FastTrack, aturan firewall yang tidak terindeks, atau proses antrean paket. Periksa `/tool profile` dan pastikan FastTrack aktif pada router MikroTik."
+    if "memori" in msg_lower or "ram" in msg_lower:
+        return "[Mode Diagnostik Lokal] Penggunaan memori tinggi pada router dapat disebabkan oleh tabel routing besar, cache DNS penuh, atau batas connection tracking. Periksa `/ip dns cache flush` dan evaluasi entri `/ip firewall connection`."
+    if "troubleshoot" in msg_lower or "masalah" in msg_lower or "down" in msg_lower:
+        return "[Mode Diagnostik Lokal] Langkah verifikasi link down:\n1. **Lapisan Fisik**: Cek status negosiasi port (`running=true/false`).\n2. **Uji Jalur**: Jalankan ping ICMP dari router ke gateway uplink.\n3. **Log Sistem**: Periksa halaman Syslog untuk pesan *link down* atau *interface flap*."
+    return f"[Mode Diagnostik Lokal - Gemini API Belum Aktif] Pertanyaan diterima: \"{message}\". Saat ini layanan LLM eksternal belum dikonfigurasi di `.env`, namun Anda tetap dapat menanyakan panduan dasar terkait `cpu`, `memori`, atau `troubleshoot`."
 
 async def analyze_traffic_anomaly(
     device_name: str,
@@ -212,7 +259,6 @@ async def analyze_traffic_anomaly(
     deviation_percent: float,
     interfaces: List[Dict[str, Any]] = []
 ) -> str:
-    """Analyze a detected traffic anomaly and return a concise, actionable RCA."""
     top_ifaces = [f"{i.get('name')} (rx: {i.get('rx_bytes', 0)}, tx: {i.get('tx_bytes', 0)})" for i in interfaces[:5]]
     iface_str = ", ".join(top_ifaces) if top_ifaces else "Tidak ada data interface spesifik"
 
@@ -232,21 +278,18 @@ Format respons dengan 3 poin singkat:
     if ai_res:
         return ai_res.strip()
 
-    # Heuristic fallback if Gemini API is unavailable
     if anomaly_type == "TRAFFIC_SPIKE":
         return (
-            f"1. **Dugaan Akar Masalah (RCA)**: Lonjakan throughput drastis ke {current_mbps} Mbps kemungkinan disebabkan oleh streaming/download massal, backup terjadwal, atau anomali flooding paket UDP/ICMP pada interface WAN.\n"
-            f"2. **Dampak Operasional**: Potensi saturasi link uplink yang memicu peningkatan latensi RTT dan antrean paket (bufferbloat) bagi segmen VLAN lainnya.\n"
+            f"1. **Dugaan Akar Masalah (RCA)**: Lonjakan throughput ke {current_mbps} Mbps melebihi baseline ({baseline_mbps} Mbps) yang dapat dipicu oleh transfer data berkapasitas besar atau lonjakan trafik UDP/TCP pada uplink.\n"
+            f"2. **Dampak Operasional**: Berpotensi meningkatkan latensi RTT dan antrean paket pada segmen jaringan lainnya.\n"
             f"3. **Tindakan Mitigasi Cepat**:\n"
-            f"   - Periksa `/tool torch` pada interface utama untuk mengidentifikasi IP sumber/tujuan dengan konsumsi bandwidth tertinggi.\n"
-            f"   - Batasi sementara rate queue klien terkait atau terapkan drop rule jika terindikasi malicious flooding."
+            f"   - Periksa halaman Traffic Flow (Top Talkers) atau `/tool torch` untuk melihat IP dengan konsumsi tertinggi.\n"
+            f"   - Terapkan pembatasan queue sementara bila trafik melampaui kapasitas link."
         )
-    else:
-        return (
-            f"1. **Dugaan Akar Masalah (RCA)**: Penurunan trafik mendadak ke {current_mbps} Mbps (>80% di bawah baseline) mengindikasikan putusnya link uplink ISP, kegagalan rute default gateway (0.0.0.0/0), atau flapping pada interface trunk utama.\n"
-            f"2. **Dampak Operasional**: Gangguan akses internet menyeluruh (blackout/outage) bagi seluruh host dan VLAN yang bergantung pada gateway ini.\n"
-            f"3. **Tindakan Mitigasi Cepat**:\n"
-            f"   - Periksa status fisik dan negosiasi link port WAN (`running=true`).\n"
-            f"   - Lakukan uji ICMP ping ke gateway ISP dan server DNS publik (8.8.8.8).\n"
-            f"   - Periksa tabel routing `/ip route print` untuk memastikan status default gateway reachable."
-        )
+    return (
+        f"1. **Dugaan Akar Masalah (RCA)**: Penurunan trafik mendadak ke {current_mbps} Mbps (>80% di bawah baseline {baseline_mbps} Mbps) mengindikasikan gangguan pada link uplink atau perubahan rute default.\n"
+        f"2. **Dampak Operasional**: Gangguan konektivitas bagi host yang melewati gateway {device_name}.\n"
+        f"3. **Tindakan Mitigasi Cepat**:\n"
+        f"   - Periksa status fisik port WAN (`running=true`).\n"
+        f"   - Lakukan uji jalur ICMP ke gateway ISP dan periksa `/ip route print`."
+    )

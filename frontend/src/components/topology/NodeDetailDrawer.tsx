@@ -1,216 +1,166 @@
-import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import React from 'react';
+import { X, Server, Router, Wifi, Globe, ExternalLink, PlusCircle, ShieldCheck, Activity, Network } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TopologyNodeData, topologyApi } from '@/services/topologyApi';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
-import { X, Server, Network, Wifi, Globe, ShieldPlus, ExternalLink, Copy, Check, Radio } from 'lucide-react';
+import { TopologyNodeData } from './TopologyNode';
 
 interface NodeDetailDrawerProps {
-  nodeData: TopologyNodeData | null;
+  node: TopologyNodeData | null;
   onClose: () => void;
-  onPromoteSuccess: () => void;
+  onPromote: (node: TopologyNodeData) => void;
+  isPromoting: boolean;
 }
 
 export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
-  nodeData,
+  node,
   onClose,
-  onPromoteSuccess,
+  onPromote,
+  isPromoting,
 }) => {
   const navigate = useNavigate();
-  const [isPromoting, setIsPromoting] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
-  const [promotedDevice, setPromotedDevice] = useState<any>(null);
 
-  if (!nodeData) return null;
+  if (!node) return null;
 
-  const { label, host, mac, tier, vendor, board, is_monitored, status, interface: iface, id } = nodeData;
-  const isMonitoredEffective = is_monitored || !!promotedDevice;
-  const effectiveDeviceId = promotedDevice?.id || id;
+  const status = (node.status || 'DISCOVERED').toUpperCase();
+  const isOnline = status === 'ONLINE';
+  const isOffline = status === 'OFFLINE';
 
-  const handleCopyIP = () => {
-    if (host && host !== 'N/A') {
-      navigator.clipboard.writeText(host);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-      toast.success('Alamat IP disalin ke clipboard');
-    }
-  };
-
-  const handlePromote = async () => {
-    if (!host || host === 'N/A') {
-      toast.error('Perangkat ini tidak memiliki alamat IP langsung untuk dimonitor.');
-      return;
-    }
-
-    setIsPromoting(true);
-    try {
-      const res = await topologyApi.promoteNeighbor({
-        label,
-        host,
-        vendor,
-        board,
-        tier,
-        interface: iface,
-      });
-      toast.success(res.message || `Perangkat ${label} berhasil ditambahkan ke monitoring!`);
-      if (res.device) {
-        setPromotedDevice(res.device);
-      }
-      onPromoteSuccess();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Gagal mempromosikan perangkat');
-    } finally {
-      setIsPromoting(false);
-    }
-  };
-
-  const getTierIcon = () => {
-    switch (tier) {
+  const getIcon = () => {
+    switch (node.tier) {
       case 'wan':
-        return <Globe className="h-5 w-5 text-cyan-400" />;
+        return <Globe className="h-6 w-6 text-cyan-400" />;
       case 'core':
-        return <Server className="h-5 w-5 text-emerald-400" />;
+        return <Router className="h-6 w-6 text-cyan-400" />;
       case 'switch':
-        return <Network className="h-5 w-5 text-sky-400" />;
+        return <Server className="h-6 w-6 text-sky-400" />;
       case 'ap':
+        return <Wifi className="h-6 w-6 text-emerald-400" />;
       default:
-        return <Wifi className="h-5 w-5 text-purple-400" />;
+        return <Network className="h-6 w-6 text-slate-400" />;
     }
   };
 
   return (
-    <div className="absolute right-4 top-4 bottom-4 w-80 sm:w-96 z-50 animate-in slide-in-from-right-5 duration-200">
-      <Card className="h-full flex flex-col border-slate-800 bg-slate-950/95 backdrop-blur-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <CardHeader className="p-4 border-b border-slate-800/80 flex flex-row items-start justify-between space-y-0 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
-              {getTierIcon()}
-            </div>
-            <div>
-              <CardTitle className="text-sm font-bold text-slate-100 truncate max-w-[200px]" title={label}>
-                {label}
-              </CardTitle>
-              <CardDescription className="text-xs capitalize text-slate-400">
-                {tier === 'wan' ? 'Gateway ISP' : tier === 'core' ? 'Core Router' : tier === 'switch' ? 'Switch Jaringan' : 'Access Point'}
-              </CardDescription>
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col">
+      <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+            {getIcon()}
+          </div>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400 block">
+              Detail Node Topologi
+            </span>
+            <h3 className="text-base font-bold text-slate-100 leading-tight">{node.label}</h3>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Tutup detail node"
+          className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="p-5 space-y-5 flex-1 overflow-y-auto">
+        <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80 flex items-center justify-between">
+          <div>
+            <span className="text-xs text-slate-400 block">Status Operasional</span>
+            <div className="flex items-center gap-2 mt-1">
+              <span
+                className={`h-2.5 w-2.5 rounded-full ${
+                  isOnline ? 'bg-emerald-500' : isOffline ? 'bg-rose-500' : 'bg-sky-400'
+                }`}
+              />
+              <span className="text-sm font-semibold text-slate-100">
+                {isOnline ? 'Aktif & Terpantau' : isOffline ? 'Terputus / Offline' : 'Terdeteksi via Neighbor Discovery'}
+              </span>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="h-8 w-8 p-0 text-slate-400 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </CardHeader>
+          <Badge variant={isOnline ? 'success' : isOffline ? 'destructive' : 'secondary'}>
+            {status}
+          </Badge>
+        </div>
 
-        {/* Content */}
-        <CardContent className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {/* Status Badge */}
-          <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80">
-            <span className="text-xs text-slate-400">Status Monitoring:</span>
-            {isMonitoredEffective ? (
-              <Badge variant="success" className="text-[10px] flex items-center gap-1">
-                <Radio className="h-3 w-3 animate-pulse" /> Monitored Active
-              </Badge>
-            ) : (
-              <Badge variant="secondary" className="text-[10px] text-slate-300">
-                Discovered (MNDP/LLDP)
-              </Badge>
-            )}
-          </div>
-
-          {/* Device Telemetry / Attributes */}
-          <div className="space-y-2.5 text-xs">
-            <div>
-              <span className="text-slate-400 block text-[11px] mb-1 font-medium">Alamat IP:</span>
-              <div className="flex items-center justify-between bg-slate-900 px-3 py-2 rounded-md border border-slate-800 font-mono text-cyan-300">
-                <span>{host || 'N/A'}</span>
-                {host && host !== 'N/A' && (
-                  <button
-                    type="button"
-                    onClick={handleCopyIP}
-                    className="text-slate-400 hover:text-white transition-colors"
-                    title="Salin IP"
-                  >
-                    {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
-                )}
-              </div>
+        <div className="space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Informasi Perangkat & Interkoneksi
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/70">
+              <span className="text-[10px] uppercase text-slate-400 block">Alamat IP (Host)</span>
+              <span className="text-xs font-mono text-slate-200 font-semibold mt-0.5 block">
+                {node.host || 'N/A'}
+              </span>
             </div>
-
-            {mac && (
-              <div>
-                <span className="text-slate-400 block text-[11px] mb-1 font-medium">MAC Address:</span>
-                <div className="bg-slate-900 px-3 py-2 rounded-md border border-slate-800 font-mono text-slate-300">
-                  {mac}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <span className="text-slate-400 block text-[11px] mb-1 font-medium">Platform / Vendor:</span>
-              <div className="bg-slate-900 px-3 py-2 rounded-md border border-slate-800 text-slate-200">
-                {vendor || 'Unknown'}
-              </div>
+            <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/70">
+              <span className="text-[10px] uppercase text-slate-400 block">Alamat MAC</span>
+              <span className="text-xs font-mono text-slate-200 font-semibold mt-0.5 block">
+                {node.mac || 'Tidak Tersedia'}
+              </span>
             </div>
-
-            <div>
-              <span className="text-slate-400 block text-[11px] mb-1 font-medium">Model / Board Name:</span>
-              <div className="bg-slate-900 px-3 py-2 rounded-md border border-slate-800 text-slate-200">
-                {board || 'Standard'}
-              </div>
+            <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/70">
+              <span className="text-[10px] uppercase text-slate-400 block">Vendor / Platform</span>
+              <span className="text-xs text-slate-200 font-medium mt-0.5 block">
+                {node.vendor || 'Generic'}
+              </span>
             </div>
-
-            <div>
-              <span className="text-slate-400 block text-[11px] mb-1 font-medium">Interface Uplink Terdeteksi:</span>
-              <div className="bg-slate-900 px-3 py-2 rounded-md border border-slate-800 font-mono text-cyan-400">
-                {iface || 'Local'}
-              </div>
+            <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/70">
+              <span className="text-[10px] uppercase text-slate-400 block">Model / Board</span>
+              <span className="text-xs font-mono text-cyan-400 mt-0.5 block truncate">
+                {node.board || 'N/A'}
+              </span>
+            </div>
+            <div className="col-span-2 p-3 rounded-lg bg-slate-950/60 border border-slate-800/70">
+              <span className="text-[10px] uppercase text-slate-400 block">Interface Uplink / VLAN</span>
+              <span className="text-xs font-mono text-emerald-400 mt-0.5 block">
+                {node.interface || 'Direct Uplink'}
+              </span>
             </div>
           </div>
-        </CardContent>
+        </div>
 
-        {/* Footer Actions */}
-        <CardFooter className="p-4 border-t border-slate-800/80 flex flex-col gap-2">
-          {isMonitoredEffective ? (
-            <Button
-              className="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium"
-              onClick={() => {
-                if (typeof effectiveDeviceId === 'number') {
-                  navigate(`/devices/${effectiveDeviceId}`);
-                } else {
-                  navigate('/devices');
-                }
-              }}
-            >
-              <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-              Buka Detail Metrik Perangkat
-            </Button>
+        <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800/80 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+            <ShieldCheck className="h-4 w-4 text-cyan-400" />
+            Status Integrasi NOVA
+          </div>
+          {node.is_monitored ? (
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Perangkat ini telah terdaftar secara resmi di dalam database NOVA dan dipantau secara berkala melalui engine telemetri.
+            </p>
           ) : (
-            <Button
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium"
-              disabled={isPromoting || !host || host === 'N/A'}
-              onClick={handlePromote}
-            >
-              <ShieldPlus className="h-3.5 w-3.5 mr-1.5" />
-              {isPromoting ? 'Mendaftarkan...' : 'Pantau Perangkat Ini (Promote)'}
-            </Button>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Perangkat ini ditemukan secara otomatis melalui protokol <strong className="text-slate-200">MikroTik Neighbor Discovery (MNDP/CDP/LLDP)</strong> dari Core Router, namun belum didaftarkan ke dalam daftar polling aktif.
+            </p>
           )}
+        </div>
+      </div>
 
+      <div className="p-4 border-t border-slate-800 bg-slate-950/80 space-y-2">
+        {node.is_monitored && typeof node.id === 'number' ? (
           <Button
-            variant="outline"
-            className="w-full border-slate-800 text-slate-400 hover:text-white text-xs"
-            onClick={onClose}
+            onClick={() => navigate(`/devices/${node.id}`)}
+            className="w-full min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold"
           >
-            Tutup Panel
+            <Activity className="h-4 w-4 mr-2" />
+            Buka Halaman Detail & Telemetri
+            <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
           </Button>
-        </CardFooter>
-      </Card>
+        ) : node.host && node.host !== 'N/A' && node.tier !== 'wan' ? (
+          <Button
+            onClick={() => onPromote(node)}
+            disabled={isPromoting}
+            className="w-full min-h-[44px] bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold"
+          >
+            <PlusCircle className="h-4 w-4 mr-2" />
+            {isPromoting ? 'Mendaftarkan...' : 'Daftarkan ke Monitoring NOVA'}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 };

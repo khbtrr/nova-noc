@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 from collections import defaultdict
 
@@ -13,12 +13,10 @@ from app.notifications.websocket import manager
 
 logger = logging.getLogger("nova.flow.service")
 
-# Global Flow Service State
 _flow_transport: Optional[asyncio.DatagramTransport] = None
 _is_running: bool = False
 _start_time: Optional[datetime] = None
 
-# Metrics & Counter Stats
 _stats = {
     "total_packets_received": 0,
     "total_flows_processed": 0,
@@ -27,8 +25,6 @@ _stats = {
     "last_received_at": None,
 }
 
-# Live Rolling Data (last 15 minutes, minute-by-minute buckets)
-# bucket_timestamp (epoch minute) -> { 'src_ips': {ip: bytes}, 'dst_ips': {ip: bytes}, 'protocols': {proto: bytes}, 'conversations': {...} }
 _minute_buckets: Dict[int, Dict[str, Any]] = defaultdict(lambda: {
     "src_ips": defaultdict(int),
     "src_pkts": defaultdict(int),
@@ -41,12 +37,10 @@ _minute_buckets: Dict[int, Dict[str, Any]] = defaultdict(lambda: {
 })
 
 def _get_current_minute_epoch() -> int:
-    """Return epoch seconds rounded to current minute."""
     return int(time.time() // 60) * 60
 
 def _resolve_ip_hostname(ip: str) -> Optional[str]:
-    """Resolves a local IP address to computer hostname using active DHCP leases from Core Router snapshot."""
-    for dev_id, snap in _latest_snapshots.items():
+    for _dev_id, snap in _latest_snapshots.items():
         leases = snap.get("dhcp_leases", [])
         for lease in leases:
             if lease.get("address") == ip:
@@ -107,18 +101,14 @@ class NetFlowReceiverProtocol(asyncio.DatagramProtocol):
         _is_running = False
         logger.info("NetFlow receiver stopped.")
 
-
 def _clean_old_buckets():
-    """Retains only the last 30 minutes of rolling minute buckets in memory."""
     now_epoch = _get_current_minute_epoch()
     cutoff = now_epoch - (30 * 60)
     old_keys = [k for k in _minute_buckets.keys() if k < cutoff]
     for k in old_keys:
         del _minute_buckets[k]
 
-
 async def _background_flush_task():
-    """Background task running every 60 seconds: writes 1-minute Top Talkers to InfluxDB."""
     from app.influxdb import influx_db
 
     while True:
@@ -126,14 +116,12 @@ async def _background_flush_task():
             await asyncio.sleep(60)
             _clean_old_buckets()
 
-            # Previous completed minute
             prev_min = _get_current_minute_epoch() - 60
             if prev_min in _minute_buckets:
                 bucket = _minute_buckets[prev_min]
                 total_bytes = bucket["total_bytes"]
                 mbps = round((total_bytes * 8) / (60.0 * 1000000.0), 2)
 
-                # Write top 5 talkers to InfluxDB
                 sorted_src = sorted(bucket["src_ips"].items(), key=lambda x: x[1], reverse=True)[:5]
                 for ip, b in sorted_src:
                     ip_mbps = round((b * 8) / (60.0 * 1000000.0), 2)
@@ -146,7 +134,6 @@ async def _background_flush_task():
                     except Exception:
                         pass
 
-                # Broadcast live flow snapshot via WebSocket
                 top_5 = get_top_talkers(window="5m", limit=5)
                 await manager.broadcast(json.dumps({
                     "event": "flow_update",
@@ -162,11 +149,9 @@ async def _background_flush_task():
         except Exception as e:
             logger.debug(f"Error in flow background flush: {e}")
 
-
 _flush_task: Optional[asyncio.Task] = None
 
 async def start_flow_receiver():
-    """Starts the NetFlow UDP listener and background aggregator."""
     global _flush_task, _start_time
     if not settings.NETFLOW_ENABLED:
         logger.info("NetFlow receiver is disabled in settings.")
@@ -186,7 +171,6 @@ async def start_flow_receiver():
         logger.error(f"Failed to start NetFlow receiver on port {port}: {e}")
 
 def stop_flow_receiver():
-    """Stops the NetFlow UDP listener."""
     global _flow_transport, _flush_task
     if _flow_transport:
         _flow_transport.close()
@@ -194,11 +178,7 @@ def stop_flow_receiver():
         _flush_task.cancel()
     logger.info("NetFlow receiver stopped.")
 
-
-# Query Services for UI & Anomaly Correlation
-
 def _get_window_buckets(window: str) -> List[Dict[str, Any]]:
-    """Returns minute buckets matching the requested time window."""
     minutes_count = 5
     if window == "1m":
         minutes_count = 1
@@ -215,11 +195,7 @@ def _get_window_buckets(window: str) -> List[Dict[str, Any]]:
     start_epoch = now_epoch - (minutes_count * 60)
     return [b for k, b in _minute_buckets.items() if k >= start_epoch]
 
-
 def get_top_talkers(window: str = "5m", limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Returns aggregated Top Source IPs (upload/originators) in the time window.
-    """
     buckets = _get_window_buckets(window)
     if not buckets:
         return []
@@ -238,7 +214,6 @@ def get_top_talkers(window: str = "5m", limit: int = 20) -> List[Dict[str, Any]]
     if total_window_bytes == 0:
         return []
 
-    # Window duration in seconds
     mins = max(len(buckets), 1)
     duration_secs = mins * 60.0
 
@@ -263,11 +238,7 @@ def get_top_talkers(window: str = "5m", limit: int = 20) -> List[Dict[str, Any]]
 
     return result
 
-
 def get_top_destinations(window: str = "5m", limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Returns aggregated Top Destination IPs in the time window.
-    """
     buckets = _get_window_buckets(window)
     if not buckets:
         return []
@@ -304,11 +275,7 @@ def get_top_destinations(window: str = "5m", limit: int = 20) -> List[Dict[str, 
 
     return result
 
-
 def get_protocols(window: str = "5m") -> List[Dict[str, Any]]:
-    """
-    Returns breakdown of bandwidth utilization per protocol/service.
-    """
     buckets = _get_window_buckets(window)
     if not buckets:
         return []
@@ -327,9 +294,7 @@ def get_protocols(window: str = "5m") -> List[Dict[str, Any]]:
     if total_bytes == 0:
         return []
 
-    # Map top application ports
     result = []
-    # 1. By Protocol (TCP, UDP, ICMP)
     for proto, b_count in sorted(combined_proto.items(), key=lambda x: x[1], reverse=True):
         pct = round((b_count / total_bytes) * 100.0, 1)
         result.append({
@@ -339,7 +304,6 @@ def get_protocols(window: str = "5m") -> List[Dict[str, Any]]:
             "percent": pct
         })
 
-    # 2. By Top Ports (HTTPS, HTTP, DNS, Winbox, etc.)
     for port, b_count in sorted(combined_ports.items(), key=lambda x: x[1], reverse=True)[:8]:
         service_name = get_service_name(port)
         pct = round((b_count / total_bytes) * 100.0, 1)
@@ -352,11 +316,7 @@ def get_protocols(window: str = "5m") -> List[Dict[str, Any]]:
 
     return result
 
-
 def get_conversations(window: str = "5m", limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Returns Top Communications (Source IP -> Destination IP:Port).
-    """
     buckets = _get_window_buckets(window)
     if not buckets:
         return []
@@ -381,8 +341,7 @@ def get_conversations(window: str = "5m", limit: int = 20) -> List[Dict[str, Any
     for rank, (conv_key, b_count) in enumerate(sorted_conv, 1):
         mbps = round((b_count * 8.0) / (duration_secs * 1000000.0), 2)
         pct = round((b_count / total_bytes) * 100.0, 1)
-        
-        # parse key: "src->dst:port/proto"
+
         try:
             parts = conv_key.split("->")
             src = parts[0]
@@ -412,15 +371,12 @@ def get_conversations(window: str = "5m", limit: int = 20) -> List[Dict[str, Any
 
     return result
 
-
 def get_flow_status() -> Dict[str, Any]:
-    """Returns NetFlow listener status and processing metrics."""
     global _stats, _is_running, _start_time
 
     now = datetime.now(timezone.utc)
     uptime_sec = round((now - _start_time).total_seconds()) if _start_time else 0
 
-    # Calculate current live Mbps across last minute
     curr_min = _get_current_minute_epoch()
     last_min_bucket = _minute_buckets.get(curr_min - 60) or _minute_buckets.get(curr_min)
     live_bytes = last_min_bucket["total_bytes"] if last_min_bucket else 0
@@ -436,12 +392,8 @@ def get_flow_status() -> Dict[str, Any]:
         "total_bytes_processed": _stats["total_bytes_processed"],
         "live_throughput_mbps": live_mbps,
         "last_received_at": _stats["last_received_at"],
-        "configured_exporter": "MikroTik Core Router (119.18.156.155 / Target 2055/udp)"
+        "configured_exporter": f"UDP Listener 0.0.0.0:{settings.NETFLOW_UDP_PORT} (NetFlow v5)"
     }
 
-
 def get_current_spike_top_talkers(limit: int = 5) -> List[Dict[str, Any]]:
-    """
-    Extracts Top Talkers at the exact current minute for NOVA Sight anomaly alert enrichment.
-    """
     return get_top_talkers(window="5m", limit=limit)

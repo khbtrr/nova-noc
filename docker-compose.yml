@@ -1,8 +1,5 @@
 services:
-  # ──────────────────────────────────────────────
-  # PostgreSQL: relational data store
-  # ──────────────────────────────────────────────
-  nova-postgres:
+  postgres:
     image: postgres:16-alpine
     container_name: nova-postgres
     restart: unless-stopped
@@ -10,99 +7,82 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-nova}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nova_secret}
       POSTGRES_DB: ${POSTGRES_DB:-nova_db}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - nova_postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nova} -d ${POSTGRES_DB:-nova_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - nova-net
 
-  # ──────────────────────────────────────────────
-  # InfluxDB: time-series metrics store
-  # ──────────────────────────────────────────────
-  nova-influxdb:
+  influxdb:
     image: influxdb:2.7-alpine
     container_name: nova-influxdb
     restart: unless-stopped
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-nova}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-nova_secret_123}
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:-nova_influx_secret}
       DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-nova-org}
-      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-nova_metrics}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-nova-metrics}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-nova-influxdb-admin-token}
-      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-30d}
-    ports:
-      - "${INFLUXDB_PORT:-8086}:8086"
+      DOCKER_INFLUXDB_INIT_RETENTION: 30d
     volumes:
-      - nova_influxdb_data:/var/lib/influxdb2
-      - nova_influxdb_config:/etc/influxdb2
+      - influxdata:/var/lib/influxdb2
     healthcheck:
       test: ["CMD", "influx", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - nova-net
 
-  # ──────────────────────────────────────────────
-  # Backend: FastAPI application
-  # ──────────────────────────────────────────────
   nova-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: nova-backend
     restart: unless-stopped
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nova}:${POSTGRES_PASSWORD:-nova_secret}@nova-postgres:5432/${POSTGRES_DB:-nova_db}
-      INFLUXDB_URL: http://nova-influxdb:8086
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nova}:${POSTGRES_PASSWORD:-nova_secret}@postgres:5432/${POSTGRES_DB:-nova_db}
+      INFLUXDB_URL: http://influxdb:8086
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
-      - "${SYSLOG_PORT:-514}:514/udp"
-      - "${NETFLOW_PORT:-2055}:2055/udp"
-    volumes:
-      - ./backend/app:/app/app  # Hot reload in development
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+      - "${SYSLOG_UDP_PORT:-5140}:5140/udp"
+      - "${NETFLOW_UDP_PORT:-2055}:2055/udp"
     depends_on:
-      nova-postgres:
+      postgres:
         condition: service_healthy
-      nova-influxdb:
+      influxdb:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health')"]
-      interval: 15s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    networks:
+      - nova-net
 
-  # ──────────────────────────────────────────────
-  # Frontend: React + Vite (dev server)
-  # ──────────────────────────────────────────────
   nova-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: nova-frontend
     restart: unless-stopped
-    environment:
-      VITE_API_URL: http://localhost:${BACKEND_PORT:-8000}/api
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    volumes:
-      - ./frontend/src:/app/src   # Hot reload in development
-      - ./frontend/public:/app/public
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      nova-backend:
-        condition: service_healthy
+      - nova-backend
+    networks:
+      - nova-net
 
 volumes:
-  nova_postgres_data:
+  pgdata:
     driver: local
-  nova_influxdb_data:
+  influxdata:
     driver: local
-  nova_influxdb_config:
-    driver: local
+
+networks:
+  nova-net:
+    driver: bridge

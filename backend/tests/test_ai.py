@@ -23,6 +23,9 @@ def test_heuristic_health_score_critical():
     assert score < 50
 
 def test_fallback_analysis_content():
-    text = _fallback_analysis("test data")
+    text = _fallback_analysis([
+        {"id": 1, "name": "Core-Router", "status": "ONLINE", "metrics": {"cpu_load": 82.0, "memory_usage": 45.0}}
+    ])
     assert "NOVA AI" in text
     assert "Rekomendasi" in text
+    assert "Core-Router (82%)" in text

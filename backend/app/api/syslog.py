@@ -23,7 +23,6 @@ async def get_syslog_messages(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Retrieve paginated and filtered Syslog entries."""
     query = (
         select(SyslogMessage, Device.name.label("device_name"))
         .outerjoin(Device, SyslogMessage.device_id == Device.id)
@@ -43,20 +42,17 @@ async def get_syslog_messages(
         )
         query = query.filter(search_filter)
 
-    # Count total
     count_subq = select(func.count()).select_from(query.subquery())
     total_res = await db.execute(count_subq)
     total = total_res.scalar() or 0
 
-    # Paginate
     offset = (page - 1) * limit
     paginated_query = query.order_by(desc(SyslogMessage.timestamp)).offset(offset).limit(limit)
     res = await db.execute(paginated_query)
     rows = res.all()
 
-    items = []
-    for msg, dev_name in rows:
-        items.append(SyslogResponse(
+    items = [
+        SyslogResponse(
             id=msg.id,
             device_id=msg.device_id,
             device_name=dev_name,
@@ -67,7 +63,9 @@ async def get_syslog_messages(
             message=msg.message,
             timestamp=msg.timestamp,
             created_at=msg.created_at
-        ))
+        )
+        for msg, dev_name in rows
+    ]
 
     pages = max(1, (total + limit - 1) // limit)
     return PaginatedSyslogResponse(
@@ -83,7 +81,6 @@ async def get_syslog_stats(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Get aggregate count of syslog messages grouped by severity in last 24 hours."""
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     query = (
         select(SyslogMessage.severity, func.count(SyslogMessage.id))
@@ -112,7 +109,6 @@ async def clear_syslog_messages(
     db: AsyncSession = Depends(get_db),
     admin = Depends(require_admin)
 ):
-    """Admin-only: clear historical syslog messages."""
     await db.execute(delete(SyslogMessage))
     await db.commit()
     return {"message": "All syslog records successfully cleared."}

@@ -16,19 +16,21 @@ export function formatBytes(bytes: number, decimals = 2) {
 
 export function formatUptime(seconds: number) {
   if (!seconds) return '0s'
-  const d = Math.floor(seconds / (3600*24))
-  const h = Math.floor(seconds % (3600*24) / 3600)
-  const m = Math.floor(seconds % 3600 / 60)
-  
-  const dDisplay = d > 0 ? d + (d == 1 ? "d " : "d ") : ""
-  const hDisplay = h > 0 ? h + (h == 1 ? "h " : "h ") : ""
-  const mDisplay = m > 0 ? m + (m == 1 ? "m" : "m") : ""
-  
+  const d = Math.floor(seconds / (3600 * 24))
+  const h = Math.floor((seconds % (3600 * 24)) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+
+  const dDisplay = d > 0 ? `${d}d ` : ""
+  const hDisplay = h > 0 ? `${h}h ` : ""
+  const mDisplay = m > 0 ? `${m}m` : ""
+
   return dDisplay + hDisplay + mDisplay || "0m"
 }
 
-export function formatDate(dateString: string) {
+export function formatDate(dateString?: string | null) {
+  if (!dateString) return 'N/A'
   const date = new Date(dateString)
+  if (isNaN(date.getTime())) return String(dateString)
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
@@ -40,7 +42,6 @@ export function formatDate(dateString: string) {
 export function formatLocalTime(timestamp: string, includeSeconds = true): string {
   if (!timestamp) return '';
 
-  // 1. If it's an ISO 8601 string or full date string (contains 'T' or '-')
   if (timestamp.includes('T') || timestamp.includes('-')) {
     const d = new Date(timestamp);
     if (!isNaN(d.getTime())) {
@@ -53,7 +54,6 @@ export function formatLocalTime(timestamp: string, includeSeconds = true): strin
     }
   }
 
-  // 2. If it's "HH:MM:SS" or "HH:MM" (treated as UTC from backend)
   const parts = timestamp.split(':');
   if (parts.length >= 2) {
     const now = new Date();

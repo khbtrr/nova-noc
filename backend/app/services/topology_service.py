@@ -5,27 +5,29 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.config import settings
 from app.models.device import Device, DeviceType, DeviceStatus
 from app.models.topology_layout import TopologyLayout
 from app.services.device_service import get_devices
-from app.core.crypto import decrypt_credential
+from app.core.crypto import decrypt_credential, encrypt_credential
 from librouteros import connect
 
 logger = logging.getLogger("nova.topology")
 
-# In-memory cached topology graph
 _cached_topology: Optional[Dict[str, Any]] = None
 _last_scan_time: Optional[datetime] = None
 
 def _classify_device_type(identity: str, platform: str, board: str, iface: str = "") -> str:
-    """Classify device into wan, core, switch, or ap based on metadata and port."""
     ident_lower = (identity or "").lower()
     plat_lower = (platform or "").lower()
     board_lower = (board or "").lower()
     iface_lower = (iface or "").lower()
     combined = f"{ident_lower} {plat_lower} {board_lower} {iface_lower}"
 
-    if any(k in iface_lower for k in ["sfplus1-jlm", "ge1-ion", "wan", "jlm", "ion"]):
+    pri_iface = settings.WAN_PRIMARY_INTERFACE.lower()
+    sec_iface = settings.WAN_SECONDARY_INTERFACE.lower()
+
+    if any(k in iface_lower for k in [pri_iface, sec_iface, "wan", "jlm", "ion"]):
         return "wan"
     if any(k in combined for k in ["uap", "u6-", "unifi", "apruang", "apbussines", "access point", "wifi", "wireless", "wap"]):
         return "ap"
@@ -36,14 +38,6 @@ def _classify_device_type(identity: str, platform: str, board: str, iface: str =
     return "switch" if ("crs" in board_lower or "css" in board_lower) else "device"
 
 async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
-    """
-    Constructs the true physical network hierarchy:
-    Tier 1: Dual-WAN Uplinks (ISP JLM & ISP ION)
-    Tier 2: Core Router (Router Utama - Bitbox Tera)
-    Tier 2.5: Main Aggregation Switch (CRS317-1G-16S+)
-    Tier 3: Distribution Switches (Gedung 1..4, Adm, Dept TIK, CBS250)
-    Tier 4: Access Points connected to building switches & Remote Tunnels
-    """
     devices = await get_devices(db)
     mikrotik_devices = [d for d in devices if d.device_type == DeviceType.MIKROTIK and d.is_enabled]
     db_switches = [d for d in devices if d.device_type == DeviceType.SNMP and d.is_enabled]
@@ -60,7 +54,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
     ap_nodes: List[Dict[str, Any]] = []
     other_nodes: List[Dict[str, Any]] = []
 
-    # 1. Core Router (Bitbox Tera)
     primary_core_id = "core-5"
     if mikrotik_devices:
         dev = mikrotik_devices[0]
@@ -76,7 +69,7 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
                 "tier": "core",
                 "device_type": "core_router",
                 "vendor": "MikroTik",
-                "board": "BITBOX TERA (x86)",
+                "board": dev.location or "Core Router",
                 "status": dev.status.value,
                 "is_monitored": True,
                 "interface": "Main Core Gateway"
@@ -85,22 +78,21 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
         tier_core_nodes.append(core_node)
         node_ids.add(primary_core_id)
 
-    # 2. Dual-WAN Gateway Nodes (ISP JLM & ISP ION)
     wan_jlm = {
         "id": "wan-isp-jlm",
         "type": "customTopology",
         "data": {
             "id": "wan-isp-jlm",
-            "label": "ISP JLM (Direct Fiber SFP+)",
-            "host": "119.18.156.153",
+            "label": f"{settings.WAN_PRIMARY_NAME} ({settings.WAN_PRIMARY_DESC})",
+            "host": settings.WAN_PRIMARY_GATEWAY,
             "mac": "",
             "tier": "wan",
             "device_type": "wan",
-            "vendor": "Provider JLM",
-            "board": "Direct SFP+ (10G)",
+            "vendor": settings.WAN_PRIMARY_NAME,
+            "board": settings.WAN_PRIMARY_DESC,
             "status": "ONLINE",
             "is_monitored": True,
-            "interface": "sfplus1-JLM"
+            "interface": settings.WAN_PRIMARY_INTERFACE
         }
     }
     wan_ion = {
@@ -108,28 +100,27 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
         "type": "customTopology",
         "data": {
             "id": "wan-isp-ion",
-            "label": "ISP ION (Router RB5009)",
-            "host": "210.79.164.65",
+            "label": f"{settings.WAN_SECONDARY_NAME} ({settings.WAN_SECONDARY_DESC})",
+            "host": settings.WAN_SECONDARY_GATEWAY,
             "mac": "",
             "tier": "wan",
             "device_type": "wan",
-            "vendor": "Provider ION",
-            "board": "RB5009UG+S+",
+            "vendor": settings.WAN_SECONDARY_NAME,
+            "board": settings.WAN_SECONDARY_DESC,
             "status": "ONLINE",
             "is_monitored": True,
-            "interface": "ge1-ION"
+            "interface": settings.WAN_SECONDARY_INTERFACE
         }
     }
     tier_wan_nodes.extend([wan_jlm, wan_ion])
     node_ids.update(["wan-isp-jlm", "wan-isp-ion"])
 
-    # WAN -> Core Router Edges
     edges.append({
         "id": f"edge-wan-isp-jlm-{primary_core_id}",
         "source": "wan-isp-jlm",
         "target": primary_core_id,
         "animated": True,
-        "label": "sfplus1-JLM (10G)",
+        "label": settings.WAN_PRIMARY_INTERFACE,
         "style": {"stroke": "#06b6d4", "strokeWidth": 2}
     })
     edges.append({
@@ -137,11 +128,10 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
         "source": "wan-isp-ion",
         "target": primary_core_id,
         "animated": True,
-        "label": "ge1-ION (1G)",
+        "label": settings.WAN_SECONDARY_INTERFACE,
         "style": {"stroke": "#38bdf8", "strokeWidth": 2}
     })
 
-    # 3. Collect Neighbors from MikroTik
     raw_neighbors = []
     if mikrotik_devices:
         core_dev = mikrotik_devices[0]
@@ -168,11 +158,9 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
                         pass
         raw_neighbors = await asyncio.to_thread(fetch_neighbors)
 
-    # Map neighbor metadata
     placed_switch_ids = set()
     main_switch_id = "switch-MAIN_SWITCH"
 
-    # Helper function to match neighbor to registered DB device
     def match_registered_device(address: str, ident: str) -> Optional[Device]:
         if address and address in registered_hosts:
             return registered_hosts[address]
@@ -183,7 +171,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
                 return d
         return None
 
-    # Process Discovered Neighbors
     for idx, n in enumerate(raw_neighbors):
         identity = str(n.get("identity") or f"Neighbor-{idx}")
         address = str(n.get("address") or "")
@@ -194,7 +181,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
 
         dev_tier = _classify_device_type(identity, platform, board, iface)
 
-        # Skip WAN neighbors as they are already statically initialized
         if dev_tier == "wan" or "jlm" in iface.lower() or "ion" in iface.lower():
             continue
 
@@ -234,7 +220,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
             }
         }
 
-        # Check if this is Main Switch (CRS317)
         if (matched_db_dev and matched_db_dev.id == 7) or "crs317" in board.lower() or "main-switch" in identity.lower():
             main_switch_id = node_id
             main_switch_node = node_item
@@ -245,7 +230,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
         else:
             other_nodes.append(node_item)
 
-    # Guarantee all 12 registered DB Switches are present
     for sw in db_switches:
         if sw.id in placed_switch_ids:
             continue
@@ -269,7 +253,7 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
                 "board": sw.name.split("-")[-1].strip() if "-" in sw.name else "Switch",
                 "status": sw.status.value,
                 "is_monitored": True,
-                "interface": sw.location or "sfplus2-SW"
+                "interface": sw.location or settings.WAN_LAN_TRUNK_INTERFACE
             }
         }
         if sw.id == 7 or "crs317" in sw.name.lower():
@@ -278,19 +262,16 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
         else:
             dist_switches.append(sw_node)
 
-    # 4. Construct True Physical Edges
-    # Edge: Core Router -> Main Switch CRS317
     if main_switch_node:
         edges.append({
             "id": f"edge-{primary_core_id}-{main_switch_id}",
             "source": primary_core_id,
             "target": main_switch_id,
             "animated": True,
-            "label": "sfplus2-SW (10G Fiber Trunk)",
+            "label": f"{settings.WAN_LAN_TRUNK_INTERFACE} (Trunk)",
             "style": {"stroke": "#06b6d4", "strokeWidth": 2.5}
         })
 
-    # Edges: Main Switch CRS317 -> All Distribution Switches
     for sw in dist_switches:
         sw_id = sw["id"]
         label_text = sw["data"].get("interface") or "Trunk 10G/1G"
@@ -303,8 +284,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
             "style": {"stroke": "#38bdf8", "strokeWidth": 1.5}
         })
 
-    # Edges: Distribution Switches -> AP Ruang
-    # Map AP to corresponding switch by name/location
     switch_by_keyword = {}
     for sw in dist_switches:
         name_l = sw["data"]["label"].lower()
@@ -319,12 +298,13 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
         if "gp3" in name_l or "gd3" in name_l:
             switch_by_keyword["gd3"] = sw["id"]
 
+    room_keywords = settings.room_keywords_list
     for ap in ap_nodes:
         ap_id = ap["id"]
         ap_label = ap["data"]["label"].lower()
         target_parent = None
 
-        if any(k in ap_label for k in ["kepsek", "tu", "guru", "koperasi"]):
+        if any(k in ap_label for k in ["kepsek", "tu", "guru", "koperasi"] if k in room_keywords):
             target_parent = switch_by_keyword.get("adm")
         elif "wakil" in ap_label:
             target_parent = switch_by_keyword.get("gd4_lt2")
@@ -342,10 +322,9 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
             "target": ap_id,
             "animated": False,
             "label": "PoE Gigabit",
-            "style": {"stroke": "#a855f7", "strokeWidth": 1.5}
+            "style": {"stroke": "#10b981", "strokeWidth": 1.5}
         })
 
-    # Edges: Remote Routers/Tunnels -> Core Router
     for dev_node in other_nodes:
         edges.append({
             "id": f"edge-{primary_core_id}-{dev_node['id']}",
@@ -356,35 +335,28 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
             "style": {"stroke": "#eab308", "strokeWidth": 1.5}
         })
 
-    # 5. Calculate Symmetrical 4-Tier Coordinates
-    # Canvas Sizing
     total_dist = len(dist_switches)
     TOTAL_WIDTH = max(total_dist * 260 + 200, 2000)
     core_center_x = TOTAL_WIDTH / 2
 
-    # Tier 1 (WAN Uplinks): Y = 50
     wan_jlm["position"] = {"x": round(core_center_x - 200), "y": 50}
     wan_ion["position"] = {"x": round(core_center_x + 80), "y": 50}
     nodes.extend(tier_wan_nodes)
 
-    # Tier 2 (Core Router): Y = 190
     for n in tier_core_nodes:
         n["position"] = {"x": round(core_center_x - 60), "y": 190}
         nodes.append(n)
 
-    # Tier 2.5 (Main Aggregation Switch CRS317): Y = 340
     if main_switch_node:
         main_switch_node["position"] = {"x": round(core_center_x - 60), "y": 340}
         nodes.append(main_switch_node)
 
-    # Tier 3 (Distribution Switches): Y = 490 / 620 (Staggered 2 Rows)
     sw_spacing = TOTAL_WIDTH / (max(total_dist, 1) + 1)
     for i, sw in enumerate(dist_switches):
         y_offset = 490 if (i % 2 == 0) else 620
         sw["position"] = {"x": round((i + 1) * sw_spacing - 100), "y": y_offset}
         nodes.append(sw)
 
-    # Tier 4 (Access Points & Tunnels): Y = 780 / 910 (Staggered 2 Rows)
     tier4_devices = ap_nodes + other_nodes
     total_t4 = len(tier4_devices)
     t4_spacing = TOTAL_WIDTH / (max(total_t4, 1) + 1)
@@ -412,12 +384,6 @@ async def build_smart_baseline_topology(db: AsyncSession) -> Dict[str, Any]:
     }
 
 async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -> Dict[str, Any]:
-    """
-    Fetches the effective topology graph:
-    1. If custom layout is saved in PostgreSQL (`topology_layouts`), loads custom nodes & edges,
-       then non-destructively refreshes live ONLINE/OFFLINE status and metrics.
-    2. Otherwise, returns the smart baseline physical hierarchy.
-    """
     global _cached_topology, _last_scan_time
 
     now = datetime.now(timezone.utc)
@@ -425,12 +391,10 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
         if (now - _last_scan_time).total_seconds() < 30:
             return _cached_topology
 
-    # Check for custom layout in database
     res = await db.execute(select(TopologyLayout).filter(TopologyLayout.name == "default"))
     custom_layout = res.scalar_one_or_none()
 
     if custom_layout and custom_layout.nodes:
-        # Load custom nodes and edges
         devices = await get_devices(db)
         dev_by_id = {d.id: d for d in devices}
         dev_by_host = {d.host: d for d in devices if d.host}
@@ -440,7 +404,6 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
             node_copy = dict(n)
             data = dict(node_copy.get("data", {}))
 
-            # Non-destructive live status sync
             matched_dev = None
             if "id" in data and isinstance(data["id"], int) and data["id"] in dev_by_id:
                 matched_dev = dev_by_id[data["id"]]
@@ -477,14 +440,12 @@ async def scan_network_topology(db: AsyncSession, force_refresh: bool = False) -
         _last_scan_time = now
         return _cached_topology
 
-    # If no custom layout, return smart baseline physical hierarchy
     baseline = await build_smart_baseline_topology(db)
     _cached_topology = baseline
     _last_scan_time = now
     return _cached_topology
 
 async def save_custom_topology(db: AsyncSession, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Saves custom node positions, custom connections, and custom devices to PostgreSQL."""
     global _cached_topology
 
     res = await db.execute(select(TopologyLayout).filter(TopologyLayout.name == "default"))
@@ -512,7 +473,6 @@ async def save_custom_topology(db: AsyncSession, nodes: List[Dict[str, Any]], ed
     return await scan_network_topology(db, force_refresh=True)
 
 async def reset_custom_topology(db: AsyncSession) -> Dict[str, Any]:
-    """Resets saved custom layout and reverts back to smart physical baseline hierarchy."""
     global _cached_topology
 
     res = await db.execute(select(TopologyLayout).filter(TopologyLayout.name == "default"))
@@ -525,7 +485,6 @@ async def reset_custom_topology(db: AsyncSession) -> Dict[str, Any]:
     return await scan_network_topology(db, force_refresh=True)
 
 async def promote_neighbor_to_device(db: AsyncSession, neighbor_data: Dict[str, Any]) -> Device:
-    """Register a discovered neighbor as an official monitored Device in NOVA."""
     name = neighbor_data.get("label") or neighbor_data.get("name") or "Perangkat Terdeteksi"
     host = neighbor_data.get("host")
     if not host or host == "N/A":
@@ -549,7 +508,7 @@ async def promote_neighbor_to_device(db: AsyncSession, neighbor_data: Dict[str, 
         device_type=dev_type,
         port=8728 if dev_type == DeviceType.MIKROTIK else 161,
         username="nova" if dev_type == DeviceType.MIKROTIK else None,
-        snmp_community="public" if dev_type == DeviceType.SNMP else None,
+        snmp_community=encrypt_credential("public") if dev_type == DeviceType.SNMP else None,
         snmp_version="v2c",
         poll_interval=60,
         is_enabled=True,

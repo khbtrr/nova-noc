@@ -3,9 +3,9 @@ import re
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple
 from sqlalchemy.future import select
-from sqlalchemy import desc, func, delete
+from sqlalchemy import delete
 
 from app.config import settings
 from app.database import async_session_maker
@@ -36,11 +36,8 @@ SEVERITIES = {
     7: "DEBUG"
 }
 
-# Cache device mapping: ip_str -> (device_id, device_name)
 _device_ip_cache: Dict[str, Tuple[int, str]] = {}
 _last_cache_refresh: float = 0.0
-
-# Flapping/deduplication for critical syslog alerts: (device_id, key) -> last_alert_time
 _syslog_alert_cooldowns: Dict[Tuple[int, str], datetime] = {}
 
 async def _refresh_device_cache():
@@ -64,14 +61,13 @@ async def _refresh_device_cache():
 def parse_syslog_datagram(data: bytes, source_ip: str) -> Dict[str, Any]:
     """Parse an RFC 3164 Syslog datagram sent from MikroTik or standard syslog daemon."""
     raw = data.decode("utf-8", errors="replace").strip()
-    
+
     facility = "daemon"
     severity = "INFO"
     topic = None
     message = raw
     timestamp = datetime.now(timezone.utc)
-    
-    # 1. Parse PRI: <PRI>
+
     pri_match = re.match(r"^<(\d{1,3})>(.*)$", raw, re.DOTALL)
     if pri_match:
         pri = int(pri_match.group(1))
@@ -81,16 +77,9 @@ def parse_syslog_datagram(data: bytes, source_ip: str) -> Dict[str, Any]:
         severity = SEVERITIES.get(sev_num, "INFO")
         message = pri_match.group(2).strip()
 
-    # 2. Parse MikroTik Topic & Timestamp
-    # MikroTik format examples:
-    # "sep/28 11:30:00 system,error,critical login failure for user admin"
-    # "172.16.18.2 interface,info ether1 link down"
-    # "firewall,info forward: in:ether1 out:bridge"
     tokens = message.split(" ", 2)
     if len(tokens) >= 2:
-        # Check if first token is month/date e.g. sep/28
         if "/" in tokens[0] and ":" in tokens[1]:
-            # Has timestamp prefix: sep/28 11:30:00
             remainder = tokens[2] if len(tokens) > 2 else ""
             subparts = remainder.split(" ", 1)
             candidate_topic = subparts[0]
@@ -103,11 +92,9 @@ def parse_syslog_datagram(data: bytes, source_ip: str) -> Dict[str, Any]:
             topic = tokens[0]
             message = " ".join(tokens[1:])
 
-    # Clean up topic trailing colon
     if topic and topic.endswith(":"):
         topic = topic[:-1]
 
-    # Elevate severity if MikroTik topic explicitly declares error or critical
     if topic:
         t_lower = topic.lower()
         if "critical" in t_lower:
@@ -129,7 +116,7 @@ def parse_syslog_datagram(data: bytes, source_ip: str) -> Dict[str, Any]:
 async def process_syslog_message(parsed: Dict[str, Any]):
     """Store message, check critical alert trigger, and broadcast to WebSocket."""
     await _refresh_device_cache()
-    
+
     source_ip = parsed["host"]
     device_info = _device_ip_cache.get(source_ip)
     device_id = device_info[0] if device_info else None
@@ -137,7 +124,6 @@ async def process_syslog_message(parsed: Dict[str, Any]):
 
     now = datetime.now(timezone.utc)
 
-    # 1. Save to PostgreSQL
     try:
         async with async_session_maker() as db:
             log_entry = SyslogMessage(
@@ -158,7 +144,6 @@ async def process_syslog_message(parsed: Dict[str, Any]):
         logger.error(f"Error persisting syslog message from {source_ip}: {e}")
         log_id = int(now.timestamp())
 
-    # 2. Check for Automatic Critical Incident Alerting
     sev = parsed["severity"].upper()
     msg_lower = parsed["message"].lower()
     is_critical_event = (
@@ -172,7 +157,7 @@ async def process_syslog_message(parsed: Dict[str, Any]):
     if is_critical_event and device_id:
         cooldown_key = (device_id, parsed.get("topic") or parsed["message"][:30])
         last_alert = _syslog_alert_cooldowns.get(cooldown_key)
-        
+
         if not last_alert or (now - last_alert) > timedelta(minutes=5):
             _syslog_alert_cooldowns[cooldown_key] = now
             alert_severity = AlertSeverity.CRITICAL if sev in ["EMERGENCY", "ALERT", "CRITICAL"] else AlertSeverity.WARNING
@@ -193,20 +178,18 @@ async def process_syslog_message(parsed: Dict[str, Any]):
                     db.add(alert)
                     await db.commit()
 
-                    # Send to Telegram
-                    from app.notifications.telegram_worker import enqueue_telegram_message
+                    from app.notifications.telegram_worker import telegram_queue
                     tele_text = (
-                        f"🚨 <b>SYSLOG ALERT: {alert_severity.value}</b>\n\n"
-                        f"📍 <b>Perangkat:</b> {device_name} ({source_ip})\n"
-                        f"🏷️ <b>Topik:</b> {parsed.get('topic') or '-'}\n"
-                        f"⚠️ <b>Pesan:</b> {parsed['message']}\n"
-                        f"⏰ <b>Waktu:</b> {now.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                        f"<b>SYSLOG ALERT: {alert_severity.value}</b>\n\n"
+                        f"<b>Perangkat:</b> {device_name} ({source_ip})\n"
+                        f"<b>Topik:</b> {parsed.get('topic') or '-'}\n"
+                        f"<b>Pesan:</b> {parsed['message']}\n"
+                        f"<b>Waktu:</b> {now.strftime('%Y-%m-%d %H:%M:%S UTC')}"
                     )
-                    await enqueue_telegram_message(tele_text)
+                    await telegram_queue.enqueue(tele_text)
             except Exception as alert_err:
                 logger.warning(f"Error creating alert from syslog: {alert_err}")
 
-    # 3. Broadcast real-time syslog event to frontend
     ws_payload = json.dumps({
         "event": "syslog_event",
         "data": {
@@ -246,9 +229,8 @@ class SyslogProtocol(asyncio.DatagramProtocol):
 _syslog_transport = None
 
 async def start_syslog_server():
-    """Start the UDP Syslog Receiver background server."""
     global _syslog_transport
-    port = settings.SYSLOG_UDP_PORT or 514
+    port = settings.SYSLOG_UDP_PORT or 5140
     loop = asyncio.get_running_loop()
     try:
         transport, _ = await loop.create_datagram_endpoint(
@@ -261,7 +243,6 @@ async def start_syslog_server():
         logger.error(f"Failed to start Syslog UDP Server on port {port}: {e}")
 
 def stop_syslog_server():
-    """Stop the UDP Syslog Receiver."""
     global _syslog_transport
     if _syslog_transport:
         _syslog_transport.close()
@@ -269,7 +250,6 @@ def stop_syslog_server():
         logger.info("Syslog UDP Server stopped.")
 
 async def cleanup_old_syslogs(retention_days: int = 7) -> int:
-    """Scheduled cleanup of syslog messages older than retention_days."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     try:
         async with async_session_maker() as db:

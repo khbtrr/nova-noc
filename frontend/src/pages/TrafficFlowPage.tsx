@@ -1,327 +1,121 @@
 import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useQuery } from '@tanstack/react-query';
-import { flowApi } from '@/services/flowApi';
-import { toast } from 'sonner';
-import { 
-  ArrowLeftRight, 
-  Search, 
-  Play, 
-  Pause, 
-  RefreshCw, 
-  Terminal, 
-  Copy, 
-  Check, 
-  Laptop, 
-  Globe, 
-  Server, 
-  ShieldCheck, 
-  Activity, 
-  Layers, 
-  Hash, 
-  Zap, 
-  ExternalLink 
+import {
+  BarChart3,
+  Activity,
+  Globe,
+  Cpu,
+  ArrowUpRight,
+  RefreshCw,
+  Clock,
+  ShieldAlert,
+  Layers,
+  Network,
 } from 'lucide-react';
-import { TopTalkerItem, ProtocolItem, ConversationItem, FlowStatus } from '@/types/flow';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts';
+import { flowApi } from '@/services/flowApi';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
-export default function TrafficFlowPage() {
+const BAR_COLORS = ['#06b6d4', '#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#14b8a6', '#38bdf8', '#eab308'];
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+export const TrafficFlowPage: React.FC = () => {
   const [windowTime, setWindowTime] = useState<string>('5m');
-  const [activeTab, setActiveTab] = useState<'talkers' | 'destinations' | 'conversations' | 'protocols'>('talkers');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
-  const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
-  // Queries
-  const { data: status, refetch: refetchStatus } = useQuery<FlowStatus>({
+  const { data: statusData } = useQuery({
     queryKey: ['flow-status'],
     queryFn: () => flowApi.getStatus(),
-    refetchInterval: isPaused ? false : 5000,
+    refetchInterval: 5000,
   });
 
-  const { data: topTalkers = [], isLoading: isLoadingTalkers, refetch: refetchTalkers } = useQuery<TopTalkerItem[]>({
+  const { data: talkersData, isLoading: loadingTalkers, refetch: refetchAll } = useQuery({
     queryKey: ['flow-top-talkers', windowTime],
-    queryFn: () => flowApi.getTopTalkers(windowTime, 50),
-    refetchInterval: isPaused ? false : 5000,
+    queryFn: () => flowApi.getTopTalkers(windowTime, 15),
+    refetchInterval: 5000,
   });
 
-  const { data: topDestinations = [], isLoading: isLoadingDestinations, refetch: refetchDestinations } = useQuery<TopTalkerItem[]>({
+  const { data: destinationsData } = useQuery({
     queryKey: ['flow-top-destinations', windowTime],
-    queryFn: () => flowApi.getTopDestinations(windowTime, 50),
-    refetchInterval: isPaused ? false : 5000,
+    queryFn: () => flowApi.getTopDestinations(windowTime, 10),
+    refetchInterval: 5000,
   });
 
-  const { data: conversations = [], isLoading: isLoadingConversations, refetch: refetchConversations } = useQuery<ConversationItem[]>({
-    queryKey: ['flow-conversations', windowTime],
-    queryFn: () => flowApi.getConversations(windowTime, 50),
-    refetchInterval: isPaused ? false : 5000,
-  });
-
-  const { data: protocols = [], isLoading: isLoadingProtocols, refetch: refetchProtocols } = useQuery<ProtocolItem[]>({
+  const { data: protocolsData } = useQuery({
     queryKey: ['flow-protocols', windowTime],
     queryFn: () => flowApi.getProtocols(windowTime),
-    refetchInterval: isPaused ? false : 5000,
+    refetchInterval: 5000,
   });
 
-  const handleManualRefresh = () => {
-    refetchStatus();
-    refetchTalkers();
-    refetchDestinations();
-    refetchConversations();
-    refetchProtocols();
-    toast.success('Data NetFlow diperbarui');
-  };
+  const { data: conversationsData } = useQuery({
+    queryKey: ['flow-conversations', windowTime],
+    queryFn: () => flowApi.getConversations(windowTime, 25),
+    refetchInterval: 5000,
+  });
 
-  const formatBytes = (bytes: number) => {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-  };
+  const talkers = Array.isArray(talkersData) ? talkersData : [];
+  const destinations = Array.isArray(destinationsData) ? destinationsData : [];
+  const protocols = (Array.isArray(protocolsData) ? protocolsData : []).filter((p) => p.type === 'service');
+  const conversations = Array.isArray(conversationsData) ? conversationsData : [];
 
-  const formatNumber = (num: number) => {
-    return new Intl.NumberFormat('id-ID').format(num || 0);
-  };
-
-  // Filtered lists based on search
-  const filteredTalkers = topTalkers.filter(t => 
-    t.ip.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.hostname.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const filteredDestinations = topDestinations.filter(d => 
-    d.ip.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    d.hostname.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const filteredConversations = conversations.filter(c => 
-    c.src_ip.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.src_hostname.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.dst_ip.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.dst_hostname.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.service.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.protocol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Group protocols into Transport vs Services
-  const transportProtocols = protocols.filter(p => p.type === 'protocol');
-  const serviceProtocols = protocols.filter(p => p.type === 'service');
-  const dominantService = serviceProtocols.length > 0 ? serviceProtocols[0] : null;
-
-  const mikrotikConfigScript = `/ip traffic-flow
-set enabled=yes interfaces=all active-flow-timeout=1m inactive-flow-timeout=15s
-/ip traffic-flow target
-add dst-address=IP_SERVER_NOVA port=2055 version=5`;
-
-  const copyConfigScript = () => {
-    navigator.clipboard.writeText(mikrotikConfigScript);
-    setCopiedCode(true);
-    toast.success('Skrip konfigurasi disalin ke clipboard');
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
+  const topTalker = talkers[0];
+  const topService = protocols[0];
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* 1. Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-2">
-              Traffic Flow & Top Talkers
-            </h2>
-            {status?.is_running ? (
-              <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs px-2.5 py-0.5 font-mono">
-                UDP 2055 Aktif
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-xs px-2.5 py-0.5">
-                Receiver Standby
-              </Badge>
-            )}
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+            <BarChart3 className="h-6 w-6" />
           </div>
-          <p className="text-sm text-slate-400 mt-1">
-            Analisis aliran paket NetFlow v5 real-time, identifikasi pemakaian bandwidth klien, dan protokol aktif.
-          </p>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-bold text-slate-100 tracking-tight">
+                Analisis Traffic Flow (NetFlow)
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider border ${
+                  statusData?.is_running
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${statusData?.is_running ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                {statusData?.is_running ? `UDP ${statusData.port} Aktif` : 'Listener Offline'}
+              </span>
+            </div>
+            <p className="text-sm text-slate-400">
+              Visibilitas pengguna bandwidth tertinggi (Top Talkers), protokol aplikasi, dan matriks koneksi IP real-time
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsGuideOpen(true)}
-            className="border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white hover:bg-slate-800"
-          >
-            <Terminal className="h-3.5 w-3.5 mr-1.5 text-cyan-400" />
-            Panduan MikroTik
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsPaused(!isPaused)}
-            className={`border-slate-800 text-slate-300 hover:text-white ${
-              isPaused ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-slate-900/60'
-            }`}
-          >
-            {isPaused ? (
-              <>
-                <Play className="h-3.5 w-3.5 mr-1.5 text-emerald-400" />
-                Lanjutkan Stream
-              </>
-            ) : (
-              <>
-                <Pause className="h-3.5 w-3.5 mr-1.5 text-amber-400" />
-                Jeda Stream
-              </>
-            )}
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleManualRefresh}
-            className="border-slate-800 bg-slate-900/60 text-slate-300 hover:text-white"
-          >
-            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      {/* 2. KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Throughput */}
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Throughput NetFlow</p>
-              <h3 className="text-xl font-bold font-mono text-slate-100 mt-1">
-                {(status?.live_throughput_mbps || 0).toFixed(2)} <span className="text-sm font-normal text-slate-400">Mbps</span>
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-1">Laju aliran data terpantau</p>
-            </div>
-            <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <Zap className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 2: Unique Talkers */}
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Klien Aktif ({windowTime})</p>
-              <h3 className="text-xl font-bold font-mono text-slate-100 mt-1">
-                {topTalkers.length} <span className="text-sm font-normal text-slate-400">IP Host</span>
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {topTalkers.filter(t => t.is_local).length} lokal LAN terdeteksi
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
-              <Laptop className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 3: Total Flows */}
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Total Aliran Flow</p>
-              <h3 className="text-xl font-bold font-mono text-slate-100 mt-1">
-                {formatNumber(status?.total_flows_processed || 0)}
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {formatBytes(status?.total_bytes_processed || 0)} diproses
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-              <Layers className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 4: Dominant Service */}
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Layanan Dominan</p>
-              <h3 className="text-xl font-bold text-slate-100 mt-1 truncate max-w-[130px]">
-                {dominantService ? dominantService.name : 'N/A'}
-              </h3>
-              <p className="text-[11px] font-mono text-cyan-400 mt-1">
-                {dominantService ? `${dominantService.percent.toFixed(1)}% pangsa bandwidth` : 'Menunggu paket...'}
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-              <Globe className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 3. Filter Bar & Window Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl border border-slate-800 bg-slate-900/40">
-        {/* Navigation Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            size="sm"
-            variant={activeTab === 'talkers' ? 'default' : 'ghost'}
-            onClick={() => setActiveTab('talkers')}
-            className={activeTab === 'talkers' ? 'bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs' : 'text-slate-400 text-xs'}
-          >
-            <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" />
-            Top Talkers (Klien Sumber)
-          </Button>
-
-          <Button
-            size="sm"
-            variant={activeTab === 'destinations' ? 'default' : 'ghost'}
-            onClick={() => setActiveTab('destinations')}
-            className={activeTab === 'destinations' ? 'bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs' : 'text-slate-400 text-xs'}
-          >
-            <Globe className="h-3.5 w-3.5 mr-1.5" />
-            Top Destinasi
-          </Button>
-
-          <Button
-            size="sm"
-            variant={activeTab === 'conversations' ? 'default' : 'ghost'}
-            onClick={() => setActiveTab('conversations')}
-            className={activeTab === 'conversations' ? 'bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs' : 'text-slate-400 text-xs'}
-          >
-            <Activity className="h-3.5 w-3.5 mr-1.5" />
-            Percakapan Aktif
-          </Button>
-
-          <Button
-            size="sm"
-            variant={activeTab === 'protocols' ? 'default' : 'ghost'}
-            onClick={() => setActiveTab('protocols')}
-            className={activeTab === 'protocols' ? 'bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs' : 'text-slate-400 text-xs'}
-          >
-            <Layers className="h-3.5 w-3.5 mr-1.5" />
-            Distribusi Protokol
-          </Button>
-        </div>
-
-        {/* Window Selectors & Search */}
-        <div className="flex items-center gap-2">
-          {/* Time Window Buttons */}
-          <div className="flex items-center rounded-lg border border-slate-800 bg-slate-950 p-1">
-            {['1m', '5m', '15m', '30m', '1h'].map((w) => (
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-1">
+            <Clock className="h-3.5 w-3.5 text-slate-400 ml-2 mr-1.5" />
+            {(['1m', '5m', '15m', '30m', '1h'] as const).map((w) => (
               <button
                 key={w}
+                type="button"
                 onClick={() => setWindowTime(w)}
-                className={`px-2.5 py-1 text-xs font-mono font-medium rounded-md transition-colors ${
+                className={`px-3 py-1.5 min-h-[38px] rounded-md text-xs font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${
                   windowTime === w
-                    ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -330,482 +124,259 @@ add dst-address=IP_SERVER_NOVA port=2055 version=5`;
             ))}
           </div>
 
-          {/* Search box */}
-          <div className="relative w-48 sm:w-64">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-            <Input
-              type="text"
-              placeholder="Cari IP, host, protokol..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 text-xs bg-slate-950 border-slate-800 text-slate-200 placeholder:text-slate-600 h-8"
-            />
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetchAll()}
+            className="min-h-[44px] bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white"
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Segarkan
+          </Button>
         </div>
       </div>
 
-      {/* 4. Tab 1: Top Talkers Table */}
-      {activeTab === 'talkers' && (
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardHeader className="p-4 border-b border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-                  <ArrowLeftRight className="h-4 w-4 text-cyan-400" />
-                  Klien Pengirim Bandwidth Terbesar ({windowTime})
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-400">
-                  Perangkat dalam jaringan yang menghasilkan aliran paket keluar terbanyak.
-                </CardDescription>
-              </div>
-              <span className="text-xs font-mono text-slate-500">
-                {filteredTalkers.length} IP terdaftar
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoadingTalkers && topTalkers.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-500">
-                <Activity className="h-6 w-6 animate-spin text-cyan-500 mx-auto mb-2" />
-                Mengagregasi aliran paket NetFlow...
-              </div>
-            ) : filteredTalkers.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-500">
-                <Server className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                <p className="text-slate-300 font-medium">Belum ada data aliran NetFlow untuk periode ini</p>
-                <p className="text-slate-500 mt-1 max-w-md mx-auto">
-                  Pastikan router MikroTik telah dikonfigurasi untuk mengekspor Traffic Flow ke IP server NOVA pada port 2055 UDP.
-                </p>
-                <Button
-                  size="sm"
-                  onClick={() => setIsGuideOpen(true)}
-                  className="mt-4 bg-cyan-600 hover:bg-cyan-500 text-white text-xs"
-                >
-                  Lihat Cara Konfigurasi MikroTik
-                </Button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/80 text-slate-400 font-medium border-b border-slate-800">
-                    <tr>
-                      <th className="py-3 px-4 w-12 text-center">Rank</th>
-                      <th className="py-3 px-4">Alamat IP Klien</th>
-                      <th className="py-3 px-4">Nama Host (DHCP / DNS)</th>
-                      <th className="py-3 px-4">Tipe</th>
-                      <th className="py-3 px-4 text-right">Laju Bandwidth</th>
-                      <th className="py-3 px-4 text-right">Total Akumulasi</th>
-                      <th className="py-3 px-4 text-right">Paket</th>
-                      <th className="py-3 px-4 w-44">Pangsa Trafik (%)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {filteredTalkers.map((talker) => (
-                      <tr key={talker.ip} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4 text-center font-mono font-semibold text-slate-400">
-                          #{talker.rank}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-mono font-semibold text-slate-100">
-                            {talker.ip}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          {talker.hostname && talker.hostname !== talker.ip ? (
-                            <span className="font-medium text-cyan-400 flex items-center gap-1.5">
-                              <Laptop className="h-3 w-3 shrink-0" />
-                              {talker.hostname}
-                            </span>
-                          ) : (
-                            <span className="text-slate-500 italic">Tidak teridentifikasi di DHCP</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          {talker.is_local ? (
-                            <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                              Lokal LAN
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] bg-slate-800 text-slate-400 border-slate-700">
-                              Publik WAN
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
-                          {talker.mbps.toFixed(2)} Mbps
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-300">
-                          {formatBytes(talker.bytes)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-400">
-                          {formatNumber(talker.packets)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
-                              <div
-                                className="bg-cyan-500 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${Math.min(100, Math.max(4, talker.percent_share))}%` }}
-                              />
-                            </div>
-                            <span className="font-mono text-slate-300 w-12 text-right">
-                              {talker.percent_share.toFixed(1)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 5. Tab 2: Top Destinations Table */}
-      {activeTab === 'destinations' && (
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardHeader className="p-4 border-b border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-blue-400" />
-                  Alamat IP Tujuan Terbesar ({windowTime})
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-400">
-                  Server atau IP publik yang paling banyak menerima pengiriman data dari klien.
-                </CardDescription>
-              </div>
-              <span className="text-xs font-mono text-slate-500">
-                {filteredDestinations.length} tujuan terdaftar
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {filteredDestinations.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-500">
-                <Globe className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                <p className="text-slate-300 font-medium">Belum ada data destinasi untuk periode ini</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/80 text-slate-400 font-medium border-b border-slate-800">
-                    <tr>
-                      <th className="py-3 px-4 w-12 text-center">Rank</th>
-                      <th className="py-3 px-4">Alamat IP Destinasi</th>
-                      <th className="py-3 px-4">Nama Host / Layanan</th>
-                      <th className="py-3 px-4">Tipe</th>
-                      <th className="py-3 px-4 text-right">Laju Bandwidth</th>
-                      <th className="py-3 px-4 text-right">Total Akumulasi</th>
-                      <th className="py-3 px-4 text-right">Paket</th>
-                      <th className="py-3 px-4 w-44">Pangsa (%)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {filteredDestinations.map((dest) => (
-                      <tr key={dest.ip} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4 text-center font-mono font-semibold text-slate-400">
-                          #{dest.rank}
-                        </td>
-                        <td className="py-3 px-4 font-mono font-semibold text-slate-100">
-                          {dest.ip}
-                        </td>
-                        <td className="py-3 px-4 text-slate-300">
-                          {dest.hostname && dest.hostname !== dest.ip ? (
-                            <span className="text-cyan-400 font-medium">{dest.hostname}</span>
-                          ) : (
-                            <span className="text-slate-500 italic">Internet Endpoint</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          {dest.is_local ? (
-                            <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                              Lokal LAN
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
-                              Publik WAN
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
-                          {dest.mbps.toFixed(2)} Mbps
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-300">
-                          {formatBytes(dest.bytes)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-400">
-                          {formatNumber(dest.packets)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
-                              <div
-                                className="bg-blue-500 h-2 rounded-full"
-                                style={{ width: `${Math.min(100, Math.max(4, dest.percent_share))}%` }}
-                              />
-                            </div>
-                            <span className="font-mono text-slate-300 w-12 text-right">
-                              {dest.percent_share.toFixed(1)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 6. Tab 3: Active Conversations Table */}
-      {activeTab === 'conversations' && (
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-          <CardHeader className="p-4 border-b border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-purple-400" />
-                  Percakapan Aliran Dua Titik (Conversations) ({windowTime})
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-400">
-                  Pasangan koneksi aktif antara host pengirim dan server tujuan beserta port aplikasi.
-                </CardDescription>
-              </div>
-              <span className="text-xs font-mono text-slate-500">
-                {filteredConversations.length} koneksi aktif
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {filteredConversations.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-500">
-                <Activity className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                <p className="text-slate-300 font-medium">Belum ada percakapan terdata</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/80 text-slate-400 font-medium border-b border-slate-800">
-                    <tr>
-                      <th className="py-3 px-4 w-12 text-center">Rank</th>
-                      <th className="py-3 px-4">Klien Sumber (Source)</th>
-                      <th className="py-3 px-4">Destinasi & Port</th>
-                      <th className="py-3 px-4">Layanan Aplikasi</th>
-                      <th className="py-3 px-4">Protokol</th>
-                      <th className="py-3 px-4 text-right">Kecepatan</th>
-                      <th className="py-3 px-4 text-right">Volume Data</th>
-                      <th className="py-3 px-4 w-36">Pangsa (%)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {filteredConversations.map((conv) => (
-                      <tr key={`${conv.src_ip}-${conv.dst_ip}-${conv.service}`} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4 text-center font-mono font-semibold text-slate-400">
-                          #{conv.rank}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-mono font-semibold text-slate-100">{conv.src_ip}</div>
-                          {conv.src_hostname && (
-                            <div className="text-[10px] text-cyan-400 truncate max-w-[150px]">{conv.src_hostname}</div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-mono text-slate-200">{conv.dst_ip}</div>
-                          {conv.dst_hostname && (
-                            <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{conv.dst_hostname}</div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <Badge className="bg-slate-800 text-slate-200 border-slate-700 font-mono text-[10px]">
-                            {conv.service}
-                          </Badge>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-slate-400 uppercase">
-                          {conv.protocol}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
-                          {conv.mbps.toFixed(2)} Mbps
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-300">
-                          {formatBytes(conv.bytes)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className="bg-purple-500 h-1.5 rounded-full"
-                                style={{ width: `${Math.min(100, Math.max(4, conv.percent))}%` }}
-                              />
-                            </div>
-                            <span className="font-mono text-slate-400 text-[11px] w-10 text-right">
-                              {conv.percent.toFixed(1)}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 7. Tab 4: Protocol & Service Distribution */}
-      {activeTab === 'protocols' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Section 1: Application Services */}
-          <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-            <CardHeader className="p-4 border-b border-slate-800">
-              <CardTitle className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                <Globe className="h-4 w-4 text-cyan-400" />
-                Layanan Aplikasi (Port Well-Known)
-              </CardTitle>
-              <CardDescription className="text-xs text-slate-400">
-                Porsi konsumsi bandwidth berdasarkan port layanan tujuan.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
-              {serviceProtocols.length === 0 ? (
-                <div className="py-8 text-center text-xs text-slate-500">
-                  Belum ada statistik layanan aplikasi
-                </div>
-              ) : (
-                serviceProtocols.map((svc) => (
-                  <div key={svc.name} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-200">{svc.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-slate-400">{formatBytes(svc.bytes)}</span>
-                        <span className="font-mono font-bold text-cyan-400 w-12 text-right">
-                          {svc.percent.toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-cyan-500 h-2 rounded-full"
-                        style={{ width: `${Math.min(100, Math.max(3, svc.percent))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Section 2: Transport Protocols */}
-          <Card className="border-slate-800 bg-slate-900/60 backdrop-blur">
-            <CardHeader className="p-4 border-b border-slate-800">
-              <CardTitle className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                <Layers className="h-4 w-4 text-purple-400" />
-                Protokol Transport (Layer 4)
-              </CardTitle>
-              <CardDescription className="text-xs text-slate-400">
-                Perbandingan protokol jaringan TCP, UDP, ICMP, dan enkapsulasi lainnya.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
-              {transportProtocols.length === 0 ? (
-                <div className="py-8 text-center text-xs text-slate-500">
-                  Belum ada data protokol transport
-                </div>
-              ) : (
-                transportProtocols.map((proto) => (
-                  <div key={proto.name} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono font-semibold text-slate-200 uppercase">{proto.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-slate-400">{formatBytes(proto.bytes)}</span>
-                        <span className="font-mono font-bold text-purple-400 w-12 text-right">
-                          {proto.percent.toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-purple-500 h-2 rounded-full"
-                        style={{ width: `${Math.min(100, Math.max(3, proto.percent))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* 8. MikroTik Configuration Modal */}
-      <Dialog open={isGuideOpen} onOpenChange={setIsGuideOpen}>
-        <DialogContent className="max-w-xl bg-slate-900 border-slate-800 text-slate-200">
-          <DialogHeader>
-            <DialogTitle className="text-base text-slate-100 flex items-center gap-2">
-              <Terminal className="h-5 w-5 text-cyan-400" />
-              Panduan Konfigurasi MikroTik Traffic Flow (NetFlow v5)
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-400">
-              Jalankan perintah ini di Terminal Winbox atau SSH Router MikroTik utama Anda untuk mengirimkan telemetri aliran paket ke NOVA.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-xs font-semibold text-slate-300 mb-1.5">
-                Perintah MikroTik RouterOS:
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Throughput Flow</p>
+              <p className="text-2xl font-bold text-cyan-400 font-mono mt-1">
+                {statusData?.live_throughput_mbps ?? 0} <span className="text-xs font-normal text-slate-400">Mbps</span>
               </p>
-              <div className="relative rounded-lg bg-slate-950 p-3 font-mono text-xs text-cyan-300 border border-slate-800">
-                <pre className="whitespace-pre-wrap">{mikrotikConfigScript}</pre>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={copyConfigScript}
-                  className="absolute top-2 right-2 h-7 px-2 border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300"
-                >
-                  {copiedCode ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                  <span className="ml-1 text-[11px]">{copiedCode ? 'Disalin' : 'Salin'}</span>
-                </Button>
-              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {formatBytes(statusData?.total_bytes_processed ?? 0)} total diproses
+              </p>
             </div>
+            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+              <Activity className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
 
-            <div className="space-y-2 text-xs text-slate-300 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
-              <div className="flex items-start gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold">1</span>
-                <p>
-                  Ganti <code className="text-cyan-300 bg-slate-800 px-1 py-0.5 rounded">IP_SERVER_NOVA</code> dengan alamat IP server tempat NOVA dijalankan (misal: 192.168.1.100).
-                </p>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold">2</span>
-                <p>
-                  Port UDP default NOVA NetFlow Receiver adalah <code className="text-cyan-300 bg-slate-800 px-1 py-0.5 rounded">2055</code>.
-                </p>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold">3</span>
-                <p>
-                  NOVA secara otomatis memetakan IP klien lokal ke nama hostname aktif yang terdaftar di DHCP Leases router utama.
-                </p>
-              </div>
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Top #1 Klien (Talker)</p>
+              <p className="text-lg font-bold text-slate-100 font-mono mt-1 truncate">
+                {topTalker ? topTalker.ip : 'Menunggu Data'}
+              </p>
+              <p className="text-[11px] text-emerald-400 truncate mt-0.5">
+                {topTalker ? `${topTalker.hostname} (${topTalker.mbps} Mbps)` : 'Belum ada paket NetFlow'}
+              </p>
             </div>
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
+              <Cpu className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Protokol Dominan</p>
+              <p className="text-lg font-bold text-amber-400 font-mono mt-1 truncate">
+                {topService ? topService.name : 'Menunggu Data'}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {topService ? `${topService.percent}% dari total trafik` : 'Menunggu aliran paket'}
+              </p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
+              <Layers className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Paket Flow Diterima</p>
+              <p className="text-2xl font-bold text-slate-100 font-mono mt-1">
+                {statusData?.total_flows_processed?.toLocaleString('id-ID') ?? 0}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {statusData?.total_packets_received ?? 0} datagram UDP
+              </p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400">
+              <Network className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {talkers.length === 0 && !loadingTalkers ? (
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="py-12 px-6 text-center space-y-3">
+            <ShieldAlert className="h-10 w-10 text-cyan-400 mx-auto opacity-80" />
+            <h3 className="text-base font-semibold text-slate-200">
+              Menunggu Aliran Paket MikroTik Traffic Flow (NetFlow v5)
+            </h3>
+            <p className="text-xs text-slate-400 max-w-xl mx-auto leading-relaxed">
+              Listener NetFlow NOVA sudah aktif pada port UDP <code className="text-cyan-400">2055</code>. Aktifkan fitur{' '}
+              <strong className="text-slate-200">IP Traffic Flow</strong> pada router MikroTik agar NOVA dapat menampilkan
+              pengguna bandwidth tertinggi secara langsung:
+            </p>
+            <div className="max-w-2xl mx-auto bg-slate-950 border border-slate-800 rounded-lg p-3 text-left font-mono text-xs text-cyan-300 space-y-1">
+              <div>/ip traffic-flow set enabled=yes interfaces=all active-flow-timeout=1m</div>
+              <div>/ip traffic-flow target add dst-address=&lt;IP_SERVER_NOVA&gt; port=2055 version=5</div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="lg:col-span-2 bg-slate-900 border-slate-800/80">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-slate-200 flex items-center justify-between">
+                  <span>Top Talkers (Konsumsi Bandwidth per IP Klien - Jendela {windowTime})</span>
+                  <span className="text-xs font-mono text-cyan-400">{talkers.length} Host Aktif</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 mt-2">
+                  {talkers.slice(0, 10).map((t) => (
+                    <div key={t.ip} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-5 h-5 rounded bg-slate-800 text-slate-400 font-mono text-[10px] flex items-center justify-center shrink-0">
+                            #{t.rank}
+                          </span>
+                          <span className="font-mono font-semibold text-slate-100">{t.ip}</span>
+                          <span className="text-slate-400 truncate text-[11px]">{t.hostname}</span>
+                          {t.is_local && (
+                            <span className="px-1.5 py-0.2 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[9px] font-mono">
+                              LAN
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 font-mono">
+                          <span className="text-slate-400 text-[11px]">{formatBytes(t.bytes)}</span>
+                          <span className="text-cyan-400 font-bold w-20 text-right">{t.mbps} Mbps</span>
+                          <span className="text-slate-300 w-12 text-right">{t.percent_share}%</span>
+                        </div>
+                      </div>
+                      <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800/60">
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-500 to-sky-400 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(100, Math.max(3, t.percent_share))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-slate-900 border-slate-800/80">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-slate-200">
+                  Distribusi Layanan & Port Aplikasi
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[260px] w-full mt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={protocols} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                      <XAxis type="number" hide />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={120}
+                        tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#1e293b',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                        formatter={(val: any) => [`${val}%`, 'Proporsi Trafik']}
+                      />
+                      <Bar dataKey="percent" radius={[0, 4, 4, 0]}>
+                        {protocols.map((_entry, index) => (
+                          <Cell key={`cell-${index}`} fill={BAR_COLORS[index % BAR_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Top Destination Server
+                  </p>
+                  {destinations.slice(0, 4).map((d) => (
+                    <div key={d.ip} className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-slate-300 flex items-center gap-1.5 truncate">
+                        <Globe className="h-3 w-3 text-sky-400 shrink-0" />
+                        {d.ip}
+                      </span>
+                      <span className="text-sky-400">{d.mbps} Mbps ({d.percent_share}%)</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          <DialogFooter>
-            <Button
-              onClick={() => setIsGuideOpen(false)}
-              className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs"
-            >
-              Tutup Panduan
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <Card className="bg-slate-900 border-slate-800/80 overflow-hidden">
+            <CardHeader className="pb-3 border-b border-slate-800">
+              <CardTitle className="text-sm font-semibold text-slate-200 flex items-center justify-between">
+                <span>Matriks Percakapan Aktif (Source IP ke Destination IP & Layanan)</span>
+                <span className="text-xs font-mono text-slate-400">Menampilkan {conversations.length} sesi terbesar</span>
+              </CardTitle>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse font-mono text-xs">
+                <thead>
+                  <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 uppercase text-[10px]">
+                    <th className="py-3 px-4">#</th>
+                    <th className="py-3 px-4">IP Sumber (Klien)</th>
+                    <th className="py-3 px-4">Tujuan (Destination IP)</th>
+                    <th className="py-3 px-4">Layanan / Port</th>
+                    <th className="py-3 px-4 text-right">Volume Data</th>
+                    <th className="py-3 px-4 text-right">Kecepatan</th>
+                    <th className="py-3 px-4 text-right">Porsi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {conversations.map((c) => (
+                    <tr key={`${c.rank}-${c.src_ip}-${c.dst_ip}-${c.service}`} className="hover:bg-slate-800/40">
+                      <td className="py-2.5 px-4 text-slate-400">{c.rank}</td>
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-slate-200">{c.src_ip}</div>
+                        {c.src_hostname !== '-' && (
+                          <div className="text-[10px] text-emerald-400">{c.src_hostname}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <div className="flex items-center gap-1.5 text-slate-300">
+                          <ArrowUpRight className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                          <span>{c.dst_ip}</span>
+                        </div>
+                        {c.dst_hostname !== '-' && (
+                          <div className="text-[10px] text-slate-400 pl-5">{c.dst_hostname}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-cyan-300">
+                          {c.service}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right text-slate-300">{formatBytes(c.bytes)}</td>
+                      <td className="py-2.5 px-4 text-right font-bold text-cyan-400">{c.mbps} Mbps</td>
+                      <td className="py-2.5 px-4 text-right text-slate-400">{c.percent}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
-}
+};
+export default TrafficFlowPage;

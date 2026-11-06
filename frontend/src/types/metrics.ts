@@ -62,6 +62,8 @@ export interface MetricsHistoryData {
   packet_loss?: number[];
   wan_latency?: number[];
   wan_packet_loss?: number[];
+  jlm_latency?: number[];
+  ion_latency?: number[];
 }
 
 export interface DHCPLease {

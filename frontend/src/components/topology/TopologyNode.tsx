@@ -1,150 +1,129 @@
 import React, { memo } from 'react';
-import { Handle, Position } from '@xyflow/react';
-import { Globe, Server, Network, Wifi } from 'lucide-react';
+import { Handle, Position, NodeProps, Node } from '@xyflow/react';
+import { Globe, Router, Server, Wifi, HardDrive } from 'lucide-react';
 import { TopologyNodeData } from '@/services/topologyApi';
 
-interface TopologyNodeProps {
-  data: TopologyNodeData;
-  selected?: boolean;
-}
+export type { TopologyNodeData };
+export type TopologyFlowNode = Node<TopologyNodeData>;
 
-export const TopologyNode = memo(({ data, selected }: TopologyNodeProps) => {
-  const { label, host, tier, vendor, board, is_monitored, status, interface: iface, is_custom } = data;
-
-  const getTierConfig = () => {
-    switch (tier) {
-      case 'wan':
-        return {
-          icon: <Globe className="h-5 w-5 text-cyan-400" />,
-          bgColor: 'bg-cyan-950/40 border-cyan-500/50',
-          selectedBorder: 'border-cyan-400 shadow-cyan-500/30',
-          badgeText: 'ISP / Gateway',
-          badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-        };
-      case 'core':
-        return {
-          icon: <Server className="h-5 w-5 text-emerald-400" />,
-          bgColor: 'bg-emerald-950/40 border-emerald-500/50',
-          selectedBorder: 'border-emerald-400 shadow-emerald-500/30',
-          badgeText: 'Core Router',
-          badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-        };
-      case 'switch':
-        return {
-          icon: <Network className="h-5 w-5 text-sky-400" />,
-          bgColor: 'bg-sky-950/40 border-sky-500/40',
-          selectedBorder: 'border-sky-400 shadow-sky-500/30',
-          badgeText: 'Switch',
-          badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
-        };
-      case 'ap':
-      default:
-        return {
-          icon: <Wifi className="h-5 w-5 text-purple-400" />,
-          bgColor: 'bg-purple-950/40 border-purple-500/40',
-          selectedBorder: 'border-purple-400 shadow-purple-500/30',
-          badgeText: 'Access Point',
-          badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-        };
-    }
-  };
+export const TopologyNode = memo(({ data, selected }: NodeProps<TopologyFlowNode>) => {
+  const status = (data.status || 'DISCOVERED').toUpperCase();
 
   const getStatusBadge = () => {
-    const s = (status || '').toUpperCase();
-    if (s === 'ONLINE') {
-      return (
-        <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-medium">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          ONLINE
-        </span>
-      );
+    if (status === 'ONLINE') {
+      return {
+        dot: 'bg-emerald-400',
+        border: selected ? 'border-cyan-400 ring-2 ring-cyan-500/30' : 'border-emerald-500/50 hover:border-emerald-400',
+        badgeBg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+        text: 'ONLINE',
+      };
     }
-    if (s === 'OFFLINE' || s === 'CRITICAL') {
-      return (
-        <span className="flex items-center gap-1 text-[9px] text-rose-400 font-medium">
-          <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
-          OFFLINE
-        </span>
-      );
+    if (status === 'OFFLINE') {
+      return {
+        dot: 'bg-rose-500',
+        border: selected ? 'border-cyan-400 ring-2 ring-cyan-500/30' : 'border-rose-500/50 hover:border-rose-400',
+        badgeBg: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+        text: 'OFFLINE',
+      };
     }
-    if (s === 'WARNING') {
-      return (
-        <span className="flex items-center gap-1 text-[9px] text-amber-400 font-medium">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
-          WARNING
-        </span>
-      );
-    }
-    return (
-      <span className="flex items-center gap-1 text-[9px] text-slate-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
-        DISCOVERED
-      </span>
-    );
+    return {
+      dot: 'bg-sky-400',
+      border: selected ? 'border-cyan-400 ring-2 ring-cyan-500/30' : 'border-slate-700/80 hover:border-sky-400/60',
+      badgeBg: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+      text: 'DISCOVERED',
+    };
   };
 
-  const config = getTierConfig();
+  const getTierIcon = () => {
+    switch (data.tier) {
+      case 'wan':
+        return <Globe className="h-5 w-5 text-cyan-400" />;
+      case 'core':
+        return <Router className="h-5 w-5 text-cyan-400" />;
+      case 'switch':
+        return <Server className="h-5 w-5 text-sky-400" />;
+      case 'ap':
+        return <Wifi className="h-5 w-5 text-emerald-400" />;
+      default:
+        return <HardDrive className="h-5 w-5 text-slate-400" />;
+    }
+  };
+
+  const getTierLabel = () => {
+    switch (data.tier) {
+      case 'wan':
+        return 'WAN UPLINK';
+      case 'core':
+        return 'CORE ROUTER';
+      case 'switch':
+        return 'SWITCH DISTRIBUSI';
+      case 'ap':
+        return 'ACCESS POINT';
+      default:
+        return 'INFRASTRUCTURE';
+    }
+  };
+
+  const st = getStatusBadge();
 
   return (
     <div
-      className={`relative min-w-[210px] max-w-[240px] rounded-xl border p-3.5 shadow-lg backdrop-blur-md transition-all duration-200 cursor-pointer ${
-        config.bgColor
-      } ${selected ? `ring-2 ring-cyan-400 ${config.selectedBorder}` : 'hover:border-slate-500'}`}
+      className={`relative min-w-[200px] max-w-[230px] rounded-xl bg-slate-900/95 border-2 p-3 shadow-xl transition-all duration-200 cursor-pointer ${st.border}`}
     >
-      {/* Top Handle (Target: accepts incoming connections) */}
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-3 !w-3 !bg-cyan-400 hover:scale-125 transition-transform !border-2 !border-slate-900 cursor-crosshair"
+        className="!w-3 !h-3 !bg-cyan-400 !border-2 !border-slate-950 hover:!scale-125 transition-transform"
       />
 
-      {/* Header: Icon + Badges */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900/80 border border-slate-800">
-          {config.icon}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 shrink-0">
+            {getTierIcon()}
+          </div>
+          <div className="min-w-0">
+            <span className="block text-[9px] font-mono uppercase tracking-wider text-slate-400">
+              {getTierLabel()}
+            </span>
+            <h4 className="text-xs font-bold text-slate-100 truncate max-w-[130px]" title={data.label}>
+              {data.label}
+            </h4>
+          </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-1">
-            {is_custom && (
-              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Manual
-              </span>
-            )}
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${config.badgeColor}`}>
-              {config.badgeText}
+
+        <span className={`flex h-2.5 w-2.5 rounded-full shrink-0 mt-1 ${st.dot}`} />
+      </div>
+
+      <div className="space-y-1 pt-1.5 border-t border-slate-800/80 text-[10px] font-mono">
+        <div className="flex items-center justify-between text-slate-300">
+          <span className="text-slate-400">IP:</span>
+          <span className="truncate max-w-[130px]">{data.host || 'N/A'}</span>
+        </div>
+        {data.board && (
+          <div className="flex items-center justify-between text-slate-400">
+            <span className="text-slate-400">Model:</span>
+            <span className="truncate max-w-[130px] text-slate-300" title={data.board}>
+              {data.board}
             </span>
           </div>
-          {getStatusBadge()}
-        </div>
+        )}
       </div>
 
-      {/* Device Name & IP */}
-      <div className="mt-2.5">
-        <h4 className="text-xs font-bold text-slate-100 truncate" title={label}>
-          {label}
-        </h4>
-        <p className="text-[11px] font-mono text-cyan-300/90 mt-0.5 truncate">
-          {host && host !== 'N/A' ? host : '(No Direct IP)'}
-        </p>
-      </div>
-
-      {/* Footer: Hardware & Uplink Interface */}
-      <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-        <span className="truncate max-w-[110px]" title={board || vendor}>
-          {board || vendor || 'Generic'}
+      <div className="mt-2 flex items-center justify-between">
+        <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${st.badgeBg}`}>
+          {st.text}
         </span>
-        {iface && (
-          <span className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 text-[9px] font-mono text-slate-300 truncate max-w-[80px]" title={iface}>
-            {iface}
+        {data.interface && (
+          <span className="text-[9px] font-mono text-slate-400 truncate max-w-[100px]" title={data.interface}>
+            {data.interface}
           </span>
         )}
       </div>
 
-      {/* Bottom Handle (Source: initiates outgoing connections) */}
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-3 !w-3 !bg-cyan-400 hover:scale-125 transition-transform !border-2 !border-slate-900 cursor-crosshair"
+        className="!w-3 !h-3 !bg-cyan-400 !border-2 !border-slate-950 hover:!scale-125 transition-transform"
       />
     </div>
   );

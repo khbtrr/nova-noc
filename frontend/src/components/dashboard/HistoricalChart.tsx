@@ -1,231 +1,174 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useQuery } from '@tanstack/react-query';
-import { metricsApi } from '@/services/metricsApi';
-import { formatLocalTime } from '@/lib/utils';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Activity, Clock } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BarChart2, Clock } from 'lucide-react';
+import { Device } from '@/types/device';
+import { useMetricsHistory } from '@/hooks/useMetrics';
 
 interface HistoricalChartProps {
-  deviceId?: string | number;
+  devices: Device[];
 }
 
-export const HistoricalChart: React.FC<HistoricalChartProps> = ({ deviceId = 1 }) => {
-  const [timeRange, setTimeRange] = useState('1h');
-  const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'memory' | 'traffic' | 'latency' | 'packet_loss'>('cpu');
+const TIME_RANGES = [
+  { label: '15M', value: '15m' },
+  { label: '1J', value: '1h' },
+  { label: '6J', value: '6h' },
+  { label: '24J', value: '24h' },
+  { label: '7H', value: '7d' },
+];
 
-  const { data: metricsHistory, isLoading } = useQuery({
-    queryKey: ['metrics-history', deviceId, timeRange],
-    queryFn: () => metricsApi.getMetricsHistory(String(deviceId), timeRange),
-    refetchInterval: 30000,
-  });
+export const HistoricalChart: React.FC<HistoricalChartProps> = ({ devices }) => {
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [metricType, setMetricType] = useState<'cpu_mem' | 'traffic' | 'latency' | 'wan_sla' | 'dual_wan'>('cpu_mem');
+  const [timeRange, setTimeRange] = useState<string>('1h');
 
-  const formatTimeLabel = (timestamp: string, range: string) => {
-    if (!timestamp) return '';
-    try {
-      const d = new Date(timestamp);
-      if (isNaN(d.getTime())) return timestamp;
-      if (range === '7d' || range === '30d') {
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-        return `${day}/${month} ${time}`;
-      }
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    } catch {
-      return formatLocalTime(timestamp, false);
-    }
-  };
+  const activeDeviceId = selectedDeviceId || (devices[0] ? String(devices[0].id) : '');
+  const { history, isLoading } = useMetricsHistory(activeDeviceId, timeRange);
 
-  // Transform into recharts format
   const chartData = React.useMemo(() => {
-    if (metricsHistory && Array.isArray((metricsHistory as any).timestamps)) {
-      const hist = metricsHistory as any;
-      return hist.timestamps.map((t: string, idx: number) => ({
-        time: formatTimeLabel(t, timeRange),
-        cpu: hist.cpu?.[idx] ?? 0,
-        memory: hist.memory?.[idx] ?? 0,
-        rx: Number((Number(hist.rx?.[idx] ?? 0) / 1000).toFixed(2)),
-        tx: Number((Number(hist.tx?.[idx] ?? 0) / 1000).toFixed(2)),
-        latency: hist.latency?.[idx] ?? 0,
-        packet_loss: hist.packet_loss?.[idx] ?? 0,
-      }));
-    }
+    if (!history || !history.timestamps) return [];
+    return history.timestamps.map((ts, idx) => {
+      const dateObj = new Date(ts);
+      const timeLabel = timeRange === '7d' || timeRange === '24h'
+        ? dateObj.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-    return [];
-  }, [metricsHistory, timeRange]);
-
-  const metricConfig = {
-    cpu: {
-      dataKey: 'cpu',
-      color: '#06b6d4',
-      unit: '%',
-      label: 'CPU Load',
-    },
-    memory: {
-      dataKey: 'memory',
-      color: '#a855f7',
-      unit: '%',
-      label: 'Memory Usage',
-    },
-    traffic: {
-      dataKey: 'rx',
-      color: '#10b981',
-      unit: ' Mbps',
-      label: 'Trafik Bandwidth',
-    },
-    latency: {
-      dataKey: 'latency',
-      color: '#f59e0b',
-      unit: ' ms',
-      label: 'Latensi ICMP (RTT)',
-    },
-    packet_loss: {
-      dataKey: 'packet_loss',
-      color: '#ef4444',
-      unit: '%',
-      label: 'Packet Loss',
-    },
-  }[selectedMetric];
+      return {
+        time: timeLabel,
+        cpu: history.cpu?.[idx] ?? 0,
+        memory: history.memory?.[idx] ?? 0,
+        rx_mbps: Number(((history.rx?.[idx] ?? 0) / 1000).toFixed(2)),
+        tx_mbps: Number(((history.tx?.[idx] ?? 0) / 1000).toFixed(2)),
+        latency: Number((history.latency?.[idx] ?? 0).toFixed(2)),
+        packet_loss: Number((history.packet_loss?.[idx] ?? 0).toFixed(1)),
+        wan_latency: Number((history.wan_latency?.[idx] ?? 0).toFixed(2)),
+        wan_packet_loss: Number((history.wan_packet_loss?.[idx] ?? 0).toFixed(1)),
+        jlm_latency: Number((history.jlm_latency?.[idx] ?? 0).toFixed(2)),
+        ion_latency: Number((history.ion_latency?.[idx] ?? 0).toFixed(2)),
+      };
+    });
+  }, [history, timeRange]);
 
   return (
-    <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <div>
-          <CardTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
-            <Activity className="h-4 w-4 text-cyan-400" />
-            Tren Metrik Historis
-          </CardTitle>
-          <CardDescription className="text-xs text-slate-400">
-            Analisis telemetri perangkat jaringan secara komparatif
-          </CardDescription>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Metric Selector */}
-          <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-            <button
-              type="button"
-              onClick={() => setSelectedMetric('cpu')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                selectedMetric === 'cpu' ? 'bg-cyan-500/20 text-cyan-400 font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              CPU
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedMetric('memory')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                selectedMetric === 'memory' ? 'bg-purple-500/20 text-purple-400 font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              RAM
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedMetric('traffic')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                selectedMetric === 'traffic' ? 'bg-emerald-500/20 text-emerald-400 font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Bandwidth
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedMetric('latency')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                selectedMetric === 'latency' ? 'bg-amber-500/20 text-amber-400 font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Latensi
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedMetric('packet_loss')}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                selectedMetric === 'packet_loss' ? 'bg-red-500/20 text-red-400 font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Packet Loss
-            </button>
+    <Card className="bg-slate-900 border-slate-800/80">
+      <CardHeader className="flex flex-col gap-3 pb-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <CardTitle className="text-base font-semibold text-slate-100 flex items-center gap-2">
+              <BarChart2 className="h-4 w-4 text-cyan-400" />
+              Tren Metrik Historis
+            </CardTitle>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Riwayat performa perangkat dari time-series InfluxDB ({timeRange.toUpperCase()})
+            </p>
           </div>
 
-          {/* Time Range Selector */}
-          <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-            {['1h', '6h', '24h', '7d', '30d'].map((range) => (
+          <select
+            value={activeDeviceId}
+            onChange={(e) => setSelectedDeviceId(e.target.value)}
+            aria-label="Pilih perangkat"
+            className="min-h-[40px] rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+          >
+            {devices.map((d) => (
+              <option key={d.id} value={String(d.id)}>
+                {d.name} ({d.host})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs gap-1">
+            {[
+              { id: 'cpu_mem', label: 'CPU & Memori' },
+              { id: 'traffic', label: 'Bandwidth' },
+              { id: 'latency', label: 'Ping Lokal' },
+              { id: 'wan_sla', label: 'Kualitas WAN' },
+              { id: 'dual_wan', label: 'Primary vs Secondary' },
+            ].map((item) => (
               <button
-                key={range}
+                key={item.id}
                 type="button"
-                onClick={() => setTimeRange(range)}
-                className={`px-2 py-1 rounded transition-colors ${
-                  timeRange === range ? 'bg-slate-800 text-slate-100 font-medium' : 'text-slate-400 hover:text-slate-200'
+                onClick={() => setMetricType(item.id as any)}
+                className={`px-2.5 py-1.5 min-h-[36px] rounded font-medium transition-colors ${
+                  metricType === item.id ? 'bg-cyan-500 text-slate-950 font-semibold' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {range}
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+            <Clock className="h-3.5 w-3.5 text-slate-400 ml-1.5 mr-1" />
+            {TIME_RANGES.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setTimeRange(r.value)}
+                className={`px-2.5 py-1.5 min-h-[36px] rounded font-mono text-[11px] transition-colors ${
+                  timeRange === r.value
+                    ? 'bg-slate-800 text-cyan-400 border border-cyan-500/30 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {r.label}
               </button>
             ))}
           </div>
         </div>
       </CardHeader>
-
       <CardContent>
-        {isLoading ? (
-          <div className="h-64 w-full flex flex-col items-center justify-center space-y-3">
-            <div className="h-7 w-7 rounded-full border-2 border-cyan-500/20 border-t-cyan-500 animate-spin" />
-            <p className="text-xs text-slate-400 font-mono">Memuat telemetri InfluxDB ({timeRange})...</p>
-          </div>
-        ) : chartData.length > 0 ? (
-          <div className="h-64 w-full">
+        <div className="h-[260px] w-full pt-2">
+          {isLoading ? (
+            <div className="h-full flex items-center justify-center text-xs font-mono text-slate-400">
+              Memuat data historis...
+            </div>
+          ) : chartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-xs font-mono text-slate-400 border border-dashed border-slate-800 rounded-lg">
+              Belum ada titik data historis untuk perangkat ini
+            </div>
+          ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="metricGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={metricConfig.color} stopOpacity={0.4} />
-                    <stop offset="95%" stopColor={metricConfig.color} stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
+              <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis 
-                  stroke="#64748b" 
-                  fontSize={11} 
-                  tickLine={false} 
-                  axisLine={false}
-                  tickFormatter={(value) => `${value}${metricConfig.unit}`}
-                  width={65}
-                />
+                <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    borderColor: '#334155',
-                    borderRadius: '0.5rem',
-                    fontSize: '12px',
-                    color: '#f8fafc',
-                  }}
-                  formatter={(value: any) => [`${value}${metricConfig.unit}`, metricConfig.label]}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px', fontSize: '12px' }}
+                  itemStyle={{ color: '#e2e8f0' }}
                 />
-                <Area
-                  type="monotone"
-                  dataKey={metricConfig.dataKey}
-                  stroke={metricConfig.color}
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#metricGradient)"
-                />
-              </AreaChart>
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                {metricType === 'cpu_mem' ? (
+                  <>
+                    <Line type="monotone" dataKey="cpu" name="CPU (%)" stroke="#06b6d4" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="memory" name="Memori (%)" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                  </>
+                ) : metricType === 'traffic' ? (
+                  <>
+                    <Line type="monotone" dataKey="rx_mbps" name="RX (Mbps)" stroke="#10b981" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="tx_mbps" name="TX (Mbps)" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                  </>
+                ) : metricType === 'latency' ? (
+                  <>
+                    <Line type="monotone" dataKey="latency" name="RTT Server ke Router (ms)" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="packet_loss" name="Loss (%)" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                  </>
+                ) : metricType === 'wan_sla' ? (
+                  <>
+                    <Line type="monotone" dataKey="wan_latency" name="RTT WAN Internet (ms)" stroke="#06b6d4" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="wan_packet_loss" name="WAN Packet Loss (%)" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                  </>
+                ) : (
+                  <>
+                    <Line type="monotone" dataKey="jlm_latency" name="Primary Gateway (ms)" stroke="#10b981" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="ion_latency" name="Secondary Gateway (ms)" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                  </>
+                )}
+              </LineChart>
             </ResponsiveContainer>
-          </div>
-        ) : (
-          <div className="h-64 w-full flex flex-col items-center justify-center text-slate-400">
-            <Clock className="h-8 w-8 text-slate-600 mb-2" />
-            <p className="text-xs font-semibold text-slate-300">Belum ada riwayat telemetri perangkat</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Data grafik tren akan terisi otomatis seiring interval polling berjalan.
-            </p>
-          </div>
-        )}
+          )}
+        </div>
       </CardContent>
     </Card>
   );

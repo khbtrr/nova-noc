@@ -1,298 +1,384 @@
 import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Users,
+  UserPlus,
+  Trash2,
+  KeyRound,
+  Shield,
+  Eye,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { userApi, CreateUserDTO } from '@/services/userApi';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { userApi } from '@/services/userApi';
+import { User } from '@/types/user';
 import { useAuthStore } from '@/stores/authStore';
-import { Users, UserPlus, Trash2, Shield, User as UserIcon, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-export default function UserManagementCard() {
+export const UserManagementCard: React.FC = () => {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuthStore();
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  const [formData, setFormData] = useState<CreateUserDTO>({
-    username: '',
-    email: '',
-    password: '',
-    role: 'viewer',
-  });
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState<'admin' | 'viewer'>('viewer');
 
-  const { data: users, isLoading } = useQuery({
+  const [resetUserTarget, setResetUserTarget] = useState<User | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+
+  const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: userApi.getUsers,
+    queryFn: () => userApi.getUsers(),
   });
 
   const createMutation = useMutation({
-    mutationFn: userApi.createUser,
-    onSuccess: (newUser) => {
+    mutationFn: () =>
+      userApi.createUser({
+        username: newUsername.trim(),
+        email: newEmail.trim(),
+        password: newPassword,
+        role: newRole,
+      }),
+    onSuccess: (created) => {
+      toast.success(`Akun pengguna "${created.username}" (${created.role}) berhasil dibuat`);
       queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast.success(`Pengguna ${newUser.username} berhasil didaftarkan!`);
-      setIsAddModalOpen(false);
-      setFormData({ username: '', email: '', password: '', role: 'viewer' });
+      setIsAddOpen(false);
+      setNewUsername('');
+      setNewEmail('');
+      setNewPassword('');
+      setNewRole('viewer');
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail || 'Gagal mendaftarkan pengguna baru.');
+      toast.error(err?.response?.data?.detail || 'Gagal membuat akun pengguna baru');
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: { role?: 'admin' | 'viewer'; is_active?: boolean } }) =>
+      userApi.updateUser(id, payload),
+    onSuccess: () => {
+      toast.success('Hak akses / status akun berhasil diperbarui');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Gagal memperbarui akun pengguna');
+    },
+  });
+
+  const resetPwMutation = useMutation({
+    mutationFn: () => userApi.resetPassword(resetUserTarget!.id, resetPasswordValue),
+    onSuccess: () => {
+      toast.success(`Password untuk "${resetUserTarget?.username}" berhasil direset`);
+      setResetUserTarget(null);
+      setResetPasswordValue('');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Gagal mereset password');
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: userApi.deleteUser,
-    onSuccess: (res) => {
+    mutationFn: (id: string | number) => userApi.deleteUser(id),
+    onSuccess: () => {
+      toast.success('Akun pengguna berhasil dihapus');
       queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast.success(res.message || 'Pengguna berhasil dihapus.');
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail || 'Gagal menghapus pengguna.');
+      toast.error(err?.response?.data?.detail || 'Gagal menghapus akun');
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.username.trim() || !formData.email.trim() || !formData.password.trim()) {
-      toast.warning('Semua kolom formulir wajib diisi.');
+    if (!newUsername.trim() || !newEmail.trim() || newPassword.length < 6) {
+      toast.error('Pastikan username, email valid, dan password minimal 6 karakter.');
       return;
     }
-    if (formData.password.length < 6) {
-      toast.warning('Password minimal 6 karakter.');
-      return;
-    }
-    createMutation.mutate(formData);
-  };
-
-  const handleDelete = (userId: string | number, username: string) => {
-    if (String(userId) === String(currentUser?.id) || username === currentUser?.username) {
-      toast.error('Anda tidak dapat menghapus akun Anda sendiri.');
-      return;
-    }
-    if (window.confirm(`Yakin ingin menghapus pengguna "${username}"? Tindakan ini tidak dapat dibatalkan.`)) {
-      deleteMutation.mutate(userId);
-    }
+    createMutation.mutate();
   };
 
   return (
-    <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-              <Users className="h-4 w-4 text-cyan-400" />
-              Manajemen Pengguna & Hak Akses
-            </CardTitle>
-            <CardDescription className="text-xs text-slate-400">
-              Kelola akun operator dan viewer. Registrasi publik ditutup untuk menjamin keamanan operasional NOC.
-            </CardDescription>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => setIsAddModalOpen(true)}
-            className="bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-semibold text-xs h-8 gap-1.5 self-start sm:self-auto"
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            Tambah Pengguna
-          </Button>
+    <Card className="bg-slate-900 border-slate-800/80">
+      <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <CardTitle className="text-base text-slate-100 flex items-center gap-2">
+            <Users className="h-4 w-4 text-cyan-400" /> Manajemen Pengguna & Hak Akses (RBAC)
+          </CardTitle>
+          <CardDescription className="text-xs text-slate-400">
+            Kelola akun operator NOC: <strong className="text-cyan-400">Admin</strong> (Akses Penuh) &{' '}
+            <strong className="text-slate-300">Viewer</strong> (Monitoring Read-Only)
+          </CardDescription>
         </div>
+
+        <Button
+          size="sm"
+          onClick={() => setIsAddOpen(true)}
+          className="min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs"
+        >
+          <UserPlus className="h-3.5 w-3.5 mr-1.5" /> Tambah Pengguna
+        </Button>
       </CardHeader>
+
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center p-8 text-slate-500 text-xs gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
-            Memuat daftar pengguna...
-          </div>
+          <div className="py-8 text-center text-xs text-slate-400 font-mono">Memuat daftar pengguna...</div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider font-mono text-[10px] border-b border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-3">Pengguna</th>
-                  <th className="py-2.5 px-3">Email</th>
-                  <th className="py-2.5 px-3">Peran (Role)</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
-                {users && users.length > 0 ? (
-                  users.map((u) => {
-                    const isSelf = String(u.id) === String(currentUser?.id) || u.username === currentUser?.username;
-                    const isAdmin = u.role === 'admin';
-                    return (
-                      <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
-                        <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-6 w-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 font-semibold text-[11px]">
-                              {u.username ? u.username[0].toUpperCase() : 'U'}
-                            </div>
-                            <span className="font-medium text-slate-200">{u.username}</span>
-                            {isSelf && (
-                              <span className="text-[10px] text-cyan-400 font-mono">(Anda)</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400">{u.email}</td>
-                        <td className="py-2.5 px-3">
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] font-mono uppercase ${
-                              isAdmin
-                                ? 'border-cyan-500/30 text-cyan-400 bg-cyan-500/10'
-                                : 'border-slate-700 text-slate-300 bg-slate-800/40'
-                            }`}
-                          >
-                            {u.role}
-                          </Badge>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="inline-flex items-center gap-1.5 text-emerald-400 text-[11px]">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                            Aktif
+          <div className="rounded-lg border border-slate-800 overflow-hidden">
+            <Table>
+              <TableHeader className="bg-slate-950/70">
+                <TableRow className="border-slate-800 hover:bg-transparent">
+                  <TableHead className="text-slate-400">Username</TableHead>
+                  <TableHead className="text-slate-400">Email</TableHead>
+                  <TableHead className="text-slate-400">Peran (Role)</TableHead>
+                  <TableHead className="text-slate-400">Status</TableHead>
+                  <TableHead className="text-right text-slate-400">Tindakan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map((u) => {
+                  const isSelf = String(u.id) === String(currentUser?.id) || u.username === currentUser?.username;
+                  return (
+                    <TableRow key={u.id} className="border-slate-800/60 hover:bg-slate-800/30">
+                      <TableCell className="font-mono font-semibold text-slate-100">
+                        {u.username}
+                        {isSelf && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                            ANDA
                           </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-400 font-mono">{u.email}</TableCell>
+                      <TableCell>
+                        <select
+                          disabled={isSelf || updateMutation.isPending}
+                          value={u.role}
+                          onChange={(e) =>
+                            updateMutation.mutate({
+                              id: u.id,
+                              payload: { role: e.target.value as 'admin' | 'viewer' },
+                            })
+                          }
+                          aria-label={`Ubah peran ${u.username}`}
+                          className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 min-h-[38px] text-xs font-mono text-slate-200 disabled:opacity-60"
+                        >
+                          <option value="admin">ADMIN (Full Access)</option>
+                          <option value="viewer">VIEWER (Read-Only)</option>
+                        </select>
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          disabled={isSelf || updateMutation.isPending}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: u.id,
+                              payload: { is_active: !(u.is_active ?? true) },
+                            })
+                          }
+                          className="disabled:opacity-60 min-h-[38px] inline-flex items-center"
+                        >
+                          {u.is_active !== false ? (
+                            <Badge variant="success" className="text-[10px] gap-1 cursor-pointer">
+                              <CheckCircle2 className="h-3 w-3" /> AKTIF
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive" className="text-[10px] gap-1 cursor-pointer">
+                              <XCircle className="h-3 w-3" /> NONAKTIF
+                            </Badge>
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell className="text-right space-x-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setResetUserTarget(u);
+                            setResetPasswordValue('');
+                          }}
+                          className="min-h-[40px] px-2.5 text-xs text-amber-400 hover:bg-amber-500/10"
+                        >
+                          <KeyRound className="h-3.5 w-3.5 mr-1" /> Reset Password
+                        </Button>
+                        {!isSelf && (
                           <Button
                             variant="ghost"
-                            size="sm"
-                            disabled={isSelf || deleteMutation.isPending}
-                            onClick={() => handleDelete(u.id, u.username)}
-                            className="h-7 w-7 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-30"
-                            title={isSelf ? 'Tidak dapat menghapus akun sendiri' : 'Hapus Pengguna'}
+                            size="icon"
+                            aria-label={`Hapus akun ${u.username}`}
+                            onClick={() => {
+                              if (window.confirm(`Hapus akun pengguna "${u.username}"?`)) {
+                                deleteMutation.mutate(u.id);
+                              }
+                            }}
+                            className="min-h-[40px] min-w-[40px] text-slate-400 hover:text-rose-400 hover:bg-rose-500/10"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-slate-500">
-                      Tidak ada pengguna lain terdaftar.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </div>
         )}
       </CardContent>
 
-      {/* Add User Modal */}
-      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="border-slate-800 bg-slate-900 text-slate-100 sm:max-w-md">
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-100 max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <UserPlus className="h-4 w-4 text-cyan-400" />
-              Pendaftaran Pengguna Baru
+            <DialogTitle className="flex items-center gap-2 text-base font-bold">
+              <UserPlus className="h-4 w-4 text-cyan-400" /> Buat Akun Pengguna Baru
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-400">
-              Buat kredensial akun operator baru untuk mengakses sistem NOVA NOC.
-            </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-3.5 py-2">
-            <div>
-              <label className="text-xs font-medium text-slate-300">Username</label>
+          <form onSubmit={handleCreateSubmit} className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Username Login</Label>
               <Input
                 required
-                placeholder="misal: noc_operator_1"
-                value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="bg-slate-950 border-slate-800 text-xs mt-1 text-slate-200"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                placeholder="Contoh: operator_noc"
+                className="min-h-[44px] bg-slate-950 border-slate-800 text-slate-200 font-mono text-xs"
               />
             </div>
 
-            <div>
-              <label className="text-xs font-medium text-slate-300">Email</label>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Alamat Email</Label>
               <Input
                 required
                 type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
                 placeholder="operator@nova.local"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="bg-slate-950 border-slate-800 text-xs mt-1 text-slate-200"
+                className="min-h-[44px] bg-slate-950 border-slate-800 text-slate-200 font-mono text-xs"
               />
             </div>
 
-            <div>
-              <label className="text-xs font-medium text-slate-300">Password</label>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Password (Minimal 6 Karakter)</Label>
               <Input
                 required
                 type="password"
-                placeholder="Minimal 6 karakter"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="bg-slate-950 border-slate-800 text-xs mt-1 text-slate-200"
+                minLength={6}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Masukkan password awal"
+                className="min-h-[44px] bg-slate-950 border-slate-800 text-slate-200 font-mono text-xs"
               />
             </div>
 
-            <div>
-              <label className="text-xs font-medium text-slate-300">Peran & Hak Akses (Role)</label>
-              <div className="grid grid-cols-2 gap-2 mt-1.5">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Level Hak Akses (Role)</Label>
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setFormData({ ...formData, role: 'viewer' })}
-                  className={`p-2.5 rounded-lg border text-left transition-all ${
-                    formData.role === 'viewer'
-                      ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
-                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
+                  onClick={() => setNewRole('viewer')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    newRole === 'viewer'
+                      ? 'bg-cyan-500/15 border-cyan-500 text-cyan-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-medium text-xs">
-                    <UserIcon className="h-3.5 w-3.5" />
-                    Viewer / Operator
+                  <div className="flex items-center gap-1.5 font-semibold text-xs">
+                    <Eye className="h-3.5 w-3.5" /> Viewer
                   </div>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">
-                    Hanya pantau telemetri (Read-Only)
-                  </span>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Hanya lihat dashboard, topologi, syslog & flow (Aman untuk tamu/staf)
+                  </p>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setFormData({ ...formData, role: 'admin' })}
-                  className={`p-2.5 rounded-lg border text-left transition-all ${
-                    formData.role === 'admin'
-                      ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
-                      : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
+                  onClick={() => setNewRole('admin')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    newRole === 'admin'
+                      ? 'bg-amber-500/15 border-amber-500 text-amber-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-medium text-xs">
-                    <Shield className="h-3.5 w-3.5" />
-                    Administrator
+                  <div className="flex items-center gap-1.5 font-semibold text-xs">
+                    <Shield className="h-3.5 w-3.5" /> Administrator
                   </div>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">
-                    Akses penuh & eksekusi remediasi
-                  </span>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Akses penuh: tambah/edit perangkat, eksekusi remediasi & kelola user
+                  </p>
                 </button>
               </div>
             </div>
 
-            <DialogFooter className="pt-3">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-xs text-slate-400 hover:text-slate-200"
+                variant="outline"
+                onClick={() => setIsAddOpen(false)}
+                className="min-h-[44px] bg-slate-950 border-slate-800 text-slate-300 text-xs"
               >
                 Batal
               </Button>
               <Button
                 type="submit"
-                size="sm"
                 disabled={createMutation.isPending}
-                className="bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-semibold text-xs gap-1.5"
+                className="min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs"
               >
-                {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Daftarkan Pengguna
+                {createMutation.isPending ? 'Menyimpan...' : 'Buat Akun'}
               </Button>
-            </DialogFooter>
+            </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!resetUserTarget} onOpenChange={(o) => !o && setResetUserTarget(null)}>
+        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-100 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold">
+              <KeyRound className="h-4 w-4 text-amber-400" /> Reset Password Pengguna
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            <p className="text-xs text-slate-400">
+              Masukkan password baru untuk akun <strong className="text-slate-100">{resetUserTarget?.username}</strong>:
+            </p>
+            <Input
+              type="password"
+              value={resetPasswordValue}
+              onChange={(e) => setResetPasswordValue(e.target.value)}
+              placeholder="Password baru (min. 6 karakter)"
+              className="min-h-[44px] bg-slate-950 border-slate-800 text-slate-200 font-mono text-xs"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setResetUserTarget(null)}
+                className="min-h-[44px] bg-slate-950 border-slate-800 text-slate-300 text-xs"
+              >
+                Batal
+              </Button>
+              <Button
+                type="button"
+                disabled={resetPasswordValue.length < 6 || resetPwMutation.isPending}
+                onClick={() => resetPwMutation.mutate()}
+                className="min-h-[44px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs"
+              >
+                {resetPwMutation.isPending ? 'Menyimpan...' : 'Simpan Password Baru'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </Card>
   );
-}
+};

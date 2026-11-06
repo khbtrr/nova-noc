@@ -1,84 +1,85 @@
-import React from 'react';
-import { Bell, Search, Activity, User } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { useAlertStore } from '@/stores/alertStore';
+import React, { useState, useEffect } from 'react';
+import { Bell, Clock, Menu } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { useAlertStore } from '@/stores/alertStore';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useNavigate } from 'react-router-dom';
 
 interface HeaderProps {
-  isWsConnected?: boolean;
+  onOpenMobileMenu?: () => void;
 }
 
-export default function Header({ isWsConnected = false }: HeaderProps) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { unreadCount } = useAlertStore();
+export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu }) => {
   const { user } = useAuthStore();
-  
-  const getPageTitle = () => {
-    switch (true) {
-      case location.pathname === '/': return 'Network Overview & Monitoring';
-      case location.pathname.startsWith('/devices/'): return 'Detail Perangkat Jaringan';
-      case location.pathname === '/devices': return 'Manajemen Perangkat';
-      case location.pathname === '/topology': return 'Topologi Jaringan';
-      case location.pathname === '/alerts': return 'Alert & Insiden';
-      case location.pathname === '/ai': return 'NOVA NOC Diagnostics';
-      case location.pathname === '/settings': return 'Pengaturan Sistem';
-      default: return 'NOVA NOC';
-    }
-  };
+  const { unreadCount } = useAlertStore();
+  const { isConnected } = useWebSocket();
+  const navigate = useNavigate();
+  const [time, setTime] = useState(new Date());
 
-  const isAdmin = user?.role === 'admin';
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-slate-800 bg-slate-900/60 backdrop-blur-xl px-6 sticky top-0 z-30">
+    <header className="h-16 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-bold text-slate-100">{getPageTitle()}</h1>
-      </div>
-      
-      <div className="flex items-center gap-3">
-        {/* Real-time Telemetry Indicator */}
-        <div 
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/60 border border-slate-800 text-[11px] font-mono"
-          title={isWsConnected ? 'Telemetri Real-time Terhubung' : 'Mencoba Menyambungkan ke Server...'}
-        >
-          <span className={`h-2 w-2 rounded-full ${isWsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-          <span className={isWsConnected ? 'text-emerald-400' : 'text-amber-400'}>
-            {isWsConnected ? 'LIVE' : 'SYNCING'}
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            aria-label="Buka menu navigasi"
+            className="lg:hidden inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
+        <div className="flex items-center gap-2 text-xs font-mono px-2.5 py-1.5 rounded-full bg-slate-950 border border-slate-800">
+          <span className="relative flex h-2 w-2">
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+          </span>
+          <span className={isConnected ? 'text-emerald-400' : 'text-rose-400'}>
+            {isConnected ? 'STREAM AKTIF' : 'TERPUTUS'}
           </span>
         </div>
+      </div>
 
-        {/* Notification Bell */}
-        <button 
+      <div className="flex items-center gap-3 sm:gap-5">
+        <div className="hidden md:flex items-center gap-2 text-slate-400 text-xs font-mono bg-slate-950/60 px-3 py-1.5 rounded-md border border-slate-800/60">
+          <Clock className="h-3.5 w-3.5 text-cyan-400" />
+          <span>{time.toUTCString()}</span>
+        </div>
+
+        <button
+          type="button"
           onClick={() => navigate('/alerts')}
-          className="relative rounded-xl p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors border border-slate-800"
-          title="Lihat Alert"
-          aria-label="Lihat notifikasi alert"
+          aria-label="Lihat peringatan"
+          className="relative inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
         >
-          <Bell className="h-4 w-4" />
+          <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+            <span className="absolute top-1.5 right-1.5 h-4 min-w-[16px] px-1 rounded-full bg-rose-500 text-[10px] font-bold text-white flex items-center justify-center">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
         </button>
 
-        {/* User Pill */}
-        <div 
+        <div className="h-6 w-[1px] bg-slate-800 hidden sm:block" />
+
+        <button
+          type="button"
           onClick={() => navigate('/settings')}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors"
+          className="flex items-center gap-3 min-h-[44px] px-2 py-1 rounded-lg hover:bg-slate-800/60 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
         >
-          <div className="h-6 w-6 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-xs font-semibold">
-            {user?.username ? user.username[0].toUpperCase() : 'A'}
+          <div className="text-right hidden sm:block">
+            <p className="text-sm font-medium text-slate-200 leading-none">{user?.username || 'Admin'}</p>
+            <p className="text-xs text-slate-400 mt-1 capitalize">{user?.role || 'Administrator'}</p>
           </div>
-          <span className="text-xs font-medium text-slate-300 hidden sm:inline">
-            {user?.username || 'admin'}
-          </span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-medium uppercase ${isAdmin ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-800 text-slate-400'}`}>
-            {user?.role || 'admin'}
-          </span>
-        </div>
+          <div className="h-9 w-9 rounded-full bg-slate-800 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm shrink-0">
+            {(user?.username || 'A')[0].toUpperCase()}
+          </div>
+        </button>
       </div>
     </header>
   );
-}
-
+};

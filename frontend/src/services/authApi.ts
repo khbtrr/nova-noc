@@ -12,8 +12,9 @@ export const authApi = {
     return res.data;
   },
 
-  getProfile: async (): Promise<User> => {
-    const res = await api.get('/auth/me');
+  getProfile: async (tokenOverride?: string): Promise<User> => {
+    const headers = tokenOverride ? { Authorization: `Bearer ${tokenOverride}` } : undefined;
+    const res = await api.get('/auth/me', { headers });
     return res.data;
   },
 

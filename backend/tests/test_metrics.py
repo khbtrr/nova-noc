@@ -27,6 +27,12 @@ def test_metrics_snapshot_and_history():
     assert 33.5 in history["cpu"]
 
 def test_device_interfaces():
+    update_device_snapshot(1, {
+        "device_id": 1,
+        "interfaces": [
+            {"name": "ether1", "type": "ether", "rx_bytes": 1000, "tx_bytes": 500, "running": True, "disabled": False}
+        ]
+    })
     ifaces = get_device_interfaces(1)
     assert isinstance(ifaces, list)
     assert len(ifaces) > 0

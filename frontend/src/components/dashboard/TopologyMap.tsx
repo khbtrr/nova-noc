@@ -1,127 +1,112 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Network, Server, Wifi, Globe } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Globe, Router, Server, Network } from 'lucide-react';
+import { Device } from '@/types/device';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { topologyApi } from '@/services/topologyApi';
 
-export const TopologyMap: React.FC = () => {
+interface TopologyMapProps {
+  devices: Device[];
+}
+
+export const TopologyMap: React.FC<TopologyMapProps> = ({ devices }) => {
   const navigate = useNavigate();
 
-  const { data: topologyData } = useQuery({
-    queryKey: ['network-topology'],
-    queryFn: topologyApi.getTopology,
-  });
+  const routers = devices.filter((d) => (d.device_type || d.type || '').toUpperCase() === 'MIKROTIK');
+  const switches = devices.filter((d) => (d.device_type || d.type || '').toUpperCase() !== 'MIKROTIK');
 
-  const summary = topologyData?.summary;
-  const coreNode = topologyData?.nodes?.find((n: any) => n.data?.tier === 'core');
-  const coreLabel = coreNode?.data?.label || (summary?.core_count ? 'Core Router Terdeteksi' : 'Belum Terdeteksi');
-  const coreHost = coreNode?.data?.host || '-';
+  const coreRouter = routers[0] || devices[0];
+  const downstreamDevices = devices.filter((d) => d.id !== coreRouter?.id);
 
   return (
-    <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-      <CardHeader className="pb-3">
+    <Card className="bg-slate-900 border-slate-800/80">
+      <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base font-semibold flex items-center gap-2 text-slate-100">
+            <CardTitle className="text-base font-semibold text-slate-100 flex items-center gap-2">
               <Network className="h-4 w-4 text-cyan-400" />
-              Peta Topologi Jaringan Dinamis
+              Peta Topologi Jaringan
             </CardTitle>
-            <CardDescription className="text-xs text-slate-400">
-              Auto-Discovery via protokol MNDP/LLDP: {summary?.total_nodes ?? 0} perangkat terdeteksi aktif
-            </CardDescription>
+            <p className="text-xs text-slate-400 mt-0.5">Hierarki interkoneksi logis dan kesehatan link</p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => navigate('/topology')}
-            className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium"
-          >
-            Buka Topologi 3-Tier
-          </Button>
+          <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" /> Aktif
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-amber-500" /> Peringatan
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-rose-500" /> Terputus
+            </span>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="relative rounded-xl border border-slate-800/80 bg-slate-950 p-5 overflow-hidden">
-          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
-            {/* 1. ISP / WAN Gateway */}
-            <div className="flex flex-col items-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-                <Globe className="h-6 w-6" />
-              </div>
-              <span className="mt-2 text-xs font-semibold text-slate-200">Gateway ISP</span>
-              <span className="text-[10px] text-cyan-400 font-mono">
-                {summary?.wan_count ? `${summary.wan_count} Uplink Terhubung` : '0 Uplink'}
-              </span>
+        <div className="relative py-6 px-4 bg-slate-950/60 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center min-h-[260px]">
+          <div className="flex flex-col items-center z-10">
+            <div className="p-3 rounded-full bg-cyan-500/10 border border-cyan-500/40 text-cyan-400">
+              <Globe className="h-6 w-6" />
             </div>
-
-            <div className="hidden md:flex flex-1 items-center justify-center">
-              <div className="h-[2px] w-full bg-gradient-to-r from-cyan-500 to-emerald-500 relative">
-                <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9px] bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 border border-slate-800">
-                  WAN Trunk
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Core Router */}
-            <div 
-              onClick={() => (coreNode?.data?.id ? navigate(`/devices/${coreNode.data.id}`) : navigate('/topology'))}
-              className="flex flex-col items-center cursor-pointer group"
-            >
-              <div className="relative flex h-14 w-14 items-center justify-center rounded-xl bg-slate-900 border-2 border-emerald-500/50 text-emerald-400 group-hover:border-emerald-400 group-hover:scale-105 transition-all">
-                <Server className="h-7 w-7" />
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                </span>
-              </div>
-              <span className="mt-2 text-xs font-semibold text-slate-200 text-center group-hover:text-cyan-400 transition-colors">
-                {coreLabel}
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono">{coreHost}</span>
-            </div>
-
-            <div className="hidden md:flex flex-1 items-center justify-center">
-              <div className="h-[2px] w-full bg-slate-700 relative">
-                <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9px] bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 border border-slate-800">
-                  Distribution
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Distribution Switches */}
-            <div 
-              onClick={() => navigate('/topology')}
-              className="flex flex-col items-center cursor-pointer group"
-            >
-              <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 border border-slate-700 text-sky-400 group-hover:border-sky-400 group-hover:scale-105 transition-all">
-                <Network className="h-6 w-6" />
-                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 rounded-full bg-sky-500"></span>
-              </div>
-              <span className="mt-2 text-xs font-semibold text-slate-200 text-center group-hover:text-sky-300 transition-colors">
-                Switches ({summary?.switch_count ?? 0})
-              </span>
-              <span className="text-[10px] text-slate-400">Distribusi Layer 2/3</span>
-            </div>
-
-            <div className="hidden md:flex flex-1 items-center justify-center">
-              <div className="h-[2px] w-full bg-slate-800"></div>
-            </div>
-
-            {/* 4. Access Points */}
-            <div 
-              onClick={() => navigate('/topology')}
-              className="flex flex-col items-center cursor-pointer group"
-            >
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 border border-slate-800 text-purple-400 group-hover:border-purple-400 group-hover:scale-105 transition-all">
-                <Wifi className="h-6 w-6" />
-              </div>
-              <span className="mt-2 text-xs font-semibold text-slate-200 group-hover:text-purple-300 transition-colors">
-                Access Points ({summary?.ap_count ?? 0})
-              </span>
-              <span className="text-[10px] text-slate-400">Wireless Access</span>
-            </div>
+            <span className="text-xs font-mono text-slate-300 mt-1.5 font-semibold">Uplink WAN / ISP</span>
           </div>
+
+          <div className="w-0.5 h-8 bg-gradient-to-b from-cyan-500 to-emerald-500 my-1" />
+
+          {coreRouter && (
+            <button
+              type="button"
+              onClick={() => navigate(`/devices/${coreRouter.id}`)}
+              className="flex flex-col items-center z-10 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 rounded-xl p-1"
+            >
+              <div
+                className={`p-3.5 rounded-xl border-2 transition-all ${
+                  coreRouter.status?.toUpperCase() === 'ONLINE'
+                    ? 'bg-slate-900 border-emerald-500/60 text-emerald-400 group-hover:border-emerald-400'
+                    : 'bg-slate-900 border-rose-500/60 text-rose-400'
+                }`}
+              >
+                <Router className="h-6 w-6" />
+              </div>
+              <span className="text-xs font-semibold text-slate-100 mt-1.5 group-hover:text-cyan-400">{coreRouter.name}</span>
+              <span className="text-[10px] font-mono text-slate-400">{coreRouter.host || coreRouter.ip_address}</span>
+            </button>
+          )}
+
+          {downstreamDevices.length > 0 && (
+            <>
+              <div className="w-0.5 h-6 bg-slate-700 my-1" />
+              <div className="w-3/4 max-w-lg h-0.5 bg-slate-700" />
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4 w-full max-w-2xl">
+                {downstreamDevices.map((dev) => {
+                  const status = dev.status?.toUpperCase();
+                  const borderColor =
+                    status === 'ONLINE'
+                      ? 'border-emerald-500/40 hover:border-emerald-400 text-emerald-400'
+                      : status === 'WARNING'
+                        ? 'border-amber-500/40 hover:border-amber-400 text-amber-400'
+                        : 'border-rose-500/40 hover:border-rose-400 text-rose-400';
+
+                  return (
+                    <button
+                      key={dev.id}
+                      type="button"
+                      onClick={() => navigate(`/devices/${dev.id}`)}
+                      className="flex flex-col items-center p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 hover:bg-slate-800/70 cursor-pointer transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                    >
+                      <div className={`p-2 rounded-lg bg-slate-950 border ${borderColor} mb-1.5`}>
+                        <Server className="h-4 w-4" />
+                      </div>
+                      <span className="text-xs font-medium text-slate-200 text-center truncate w-full group-hover:text-cyan-400">
+                        {dev.name}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">{dev.host || dev.ip_address}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -1,4 +1,4 @@
-export type SyslogSeverity = 
+export type SyslogSeverity =
   | 'EMERGENCY'
   | 'ALERT'
   | 'CRITICAL'
@@ -24,6 +24,7 @@ export interface SyslogMessage {
 export interface SyslogStats {
   total: number;
   emergency: number;
+  alert?: number;
   critical: number;
   error: number;
   warning: number;

@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 from app.models.user import UserRole
 
+
 class UserCreate(BaseModel):
     username: str
     email: str
@@ -17,9 +18,28 @@ class UserCreate(BaseModel):
                 return UserRole[v_upper]
         return v
 
+
+class UserUpdate(BaseModel):
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("role", mode="before")
+    def parse_role(cls, v):
+        if isinstance(v, str):
+            v_upper = v.upper()
+            if v_upper in UserRole.__members__:
+                return UserRole[v_upper]
+        return v
+
+
+class UserPasswordReset(BaseModel):
+    new_password: str
+
+
 class UserLogin(BaseModel):
     username: str
     password: str
+
 
 class UserResponse(BaseModel):
     id: int
@@ -28,7 +48,7 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 

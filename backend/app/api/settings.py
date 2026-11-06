@@ -16,7 +16,7 @@ class SystemSettings(BaseModel):
 
 class TelegramTestRequest(BaseModel):
     chat_id: Optional[str] = None
-    message: Optional[str] = "🔔 Test notifikasi sistem NOVA NOC berhasil terkirim!"
+    message: Optional[str] = "[NOVA NOC] Tes notifikasi sistem berhasil terkirim."
 
 @router.get("")
 async def get_system_settings(current_user = Depends(get_current_user)):
@@ -26,7 +26,18 @@ async def get_system_settings(current_user = Depends(get_current_user)):
         "telegram_configured": bool(settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID),
         "gemini_configured": bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your-gemini-api-key-here"),
         "telegram_chat_id": settings.TELEGRAM_CHAT_ID or "",
-        "debug_mode": settings.DEBUG
+        "debug_mode": settings.DEBUG,
+        "wan_profile": {
+            "primary_name": settings.WAN_PRIMARY_NAME,
+            "primary_desc": settings.WAN_PRIMARY_DESC,
+            "primary_interface": settings.WAN_PRIMARY_INTERFACE,
+            "primary_gateway": settings.WAN_PRIMARY_GATEWAY,
+            "secondary_name": settings.WAN_SECONDARY_NAME,
+            "secondary_desc": settings.WAN_SECONDARY_DESC,
+            "secondary_interface": settings.WAN_SECONDARY_INTERFACE,
+            "secondary_gateway": settings.WAN_SECONDARY_GATEWAY,
+            "lan_trunk_interface": settings.WAN_LAN_TRUNK_INTERFACE,
+        }
     }
 
 @router.post("/test-telegram")
@@ -38,9 +49,8 @@ async def test_telegram_notification(
         raise HTTPException(status_code=400, detail="TELEGRAM_BOT_TOKEN belum diatur dalam file .env")
     if not settings.TELEGRAM_CHAT_ID:
         raise HTTPException(status_code=400, detail="TELEGRAM_CHAT_ID belum diatur dalam file .env")
-        
+
     success = await send_telegram_message(req.message)
     if not success:
         raise HTTPException(status_code=500, detail="Gagal mengirim pesan Telegram. Pastikan bot sudah di-start di Telegram (kirim /start ke bot) dan Chat ID valid.")
     return {"status": "ok", "message": "Pesan tes telah berhasil dikirimkan ke Telegram!"}
-

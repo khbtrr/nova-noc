@@ -1,922 +1,691 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useQuery } from '@tanstack/react-query';
-import { deviceApi } from '@/services/deviceApi';
-import { metricsApi } from '@/services/metricsApi';
-import { aiApi } from '@/services/aiApi';
-import { HistoricalChart } from '@/components/dashboard/HistoricalChart';
-import DualWanPanel from '@/components/dashboard/DualWanPanel';
-import { toast } from 'sonner';
-import { 
-  ArrowLeft, Activity, Server, Clock, AlertTriangle, 
-  Network, Wifi, Radio, Bot, CheckCircle2, ShieldAlert,
-  ArrowDownUp, RefreshCw, Globe, Zap, RotateCcw, Terminal,
-  CheckCircle, XCircle, History, Pencil, BellOff, BellRing, ScrollText
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Cpu,
+  HardDrive,
+  Clock,
+  Activity,
+  Bot,
+  Network,
+  Route,
+  Users,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Pencil,
+  Zap,
+  RefreshCw,
+  Terminal,
+  History,
+  BellOff,
+  Play,
 } from 'lucide-react';
-import { formatBytes, formatDate } from '@/lib/utils';
-import { Select } from '@/components/ui/select';
-import { remediationApi, RemediationLogItem } from '@/services/remediationApi';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Device } from '@/types/device';
+import {
+  useDeviceMetrics,
+  useDeviceInterfaces,
+  useDeviceDHCPLeases,
+  useDeviceRoutes,
+  useDeviceRemediationLogs,
+} from '@/hooks/useMetrics';
+import { aiApi } from '@/services/aiApi';
+import { deviceApi } from '@/services/deviceApi';
+import { remediationApi } from '@/services/remediationApi';
 import { syslogApi } from '@/services/syslogApi';
-import EditDeviceModal from './EditDeviceModal';
-import SnoozeDeviceModal from './SnoozeDeviceModal';
 import { useAuthStore } from '@/stores/authStore';
+import { EditDeviceModal } from './EditDeviceModal';
+import { SnoozeDeviceModal } from './SnoozeDeviceModal';
+import { toast } from 'sonner';
 
-export default function DeviceDetail() {
-  const { id = '1' } = useParams<{ id: string }>();
+interface DeviceDetailProps {
+  device: Device;
+}
+
+export const DeviceDetail: React.FC<DeviceDetailProps> = ({ device }) => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'interfaces' | 'dhcp' | 'routes' | 'remediation' | 'syslog' | 'ai'>('interfaces');
+  const isMikrotik = String(device.device_type || device.type || '').toUpperCase() === 'MIKROTIK';
 
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const statusUpper = String(device.status || 'OFFLINE').toUpperCase();
+  const isOnline = statusUpper === 'ONLINE';
+  const isWarning = statusUpper === 'WARNING';
+
+  const { metrics } = useDeviceMetrics(device.id);
+  const { interfaces } = useDeviceInterfaces(device.id);
+  const { dhcpLeases } = useDeviceDHCPLeases(device.id);
+  const { routes } = useDeviceRoutes(device.id);
+  const { logs: remediationLogs, refetch: refetchRemediationLogs } = useDeviceRemediationLogs(device.id);
+
+  const [activeTab, setActiveTab] = useState<'interfaces' | 'dhcp' | 'routes' | 'syslog' | 'remediation' | 'ai'>('interfaces');
+  const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [selectedInterface, setSelectedInterface] = useState<string>('');
-  const [executingAction, setExecutingAction] = useState<string | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isSnoozeModalOpen, setIsSnoozeModalOpen] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isSnoozeOpen, setIsSnoozeOpen] = useState(false);
+  const [execAction, setExecAction] = useState<string | null>(null);
 
-  // Fetch device details
-  const { data: device, refetch: refetchDevice } = useQuery({
-    queryKey: ['device', id],
-    queryFn: () => deviceApi.getDevice(id),
+  const unsnoozeMutation = useMutation({
+    mutationFn: () => deviceApi.unsnoozeDevice(device.id),
+    onSuccess: () => {
+      toast.success(`Maintenance Mode dinonaktifkan untuk ${device.name}`);
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['device', String(device.id)] });
+    },
+    onError: () => {
+      toast.error('Gagal menonaktifkan mode maintenance');
+    },
   });
 
-  // Fetch current metrics
-  const { data: metrics, refetch: refetchMetrics } = useQuery({
-    queryKey: ['metrics', id],
-    queryFn: () => metricsApi.getMetrics(id),
-    refetchInterval: 10000,
-  });
-
-  // Fetch interfaces
-  const { data: interfaces = [] } = useQuery({
-    queryKey: ['interfaces', id],
-    queryFn: () => metricsApi.getInterfaces(id),
-  });
-
-  // Fetch DHCP leases
-  const { data: dhcpLeases = [] } = useQuery({
-    queryKey: ['dhcp', id],
-    queryFn: () => metricsApi.getDHCPLeases(id),
-  });
-
-  // Fetch routes
-  const { data: routes = [] } = useQuery({
-    queryKey: ['routes', id],
-    queryFn: () => metricsApi.getRoutes(id),
-  });
-
-  // Fetch remediation logs
-  const { data: remediationLogs = [], refetch: refetchLogs } = useQuery({
-    queryKey: ['remediationLogs', id],
-    queryFn: () => remediationApi.getDeviceLogs(id),
-    refetchInterval: 10000,
-  });
-
-  // Fetch device-specific syslog messages
-  const { data: deviceSyslogData } = useQuery({
-    queryKey: ['device-syslog', id],
-    queryFn: () => syslogApi.getSyslogs({ device_id: Number(id), limit: 100 }),
+  const { data: deviceSyslogs, isLoading: loadingSyslogs } = useQuery({
+    queryKey: ['device-syslog', String(device.id)],
+    queryFn: () => syslogApi.getMessages({ device_id: Number(device.id), limit: 50 }),
     refetchInterval: activeTab === 'syslog' ? 5000 : false,
   });
 
-  const handleExecuteRemediation = async (actionType: 'FLUSH_DNS' | 'RESTART_INTERFACE' | 'RUN_DIAGNOSTICS' | 'ACKNOWLEDGE', target?: string) => {
-    setExecutingAction(actionType);
+  const handleRemediation = async (actionType: string, target: string = 'global') => {
+    setExecAction(`${actionType}-${target}`);
     try {
-      const res = await remediationApi.execute({
-        device_id: Number(id),
+      const res = await remediationApi.executeAction({
+        device_id: Number(device.id),
         action_type: actionType,
-        target: target || 'global',
-        executed_by: 'Dashboard Operator',
+        target,
       });
       if (res.success) {
-        toast.success(res.message || `Aksi ${actionType} berhasil dieksekusi.`);
+        toast.success(`[NOVA Act] ${res.message}`);
       } else {
-        toast.error(res.message || `Aksi ${actionType} gagal.`);
+        toast.error(`[NOVA Act] ${res.message}`);
       }
-      refetchLogs();
+      refetchRemediationLogs();
     } catch (err: any) {
-      toast.error(`Gagal mengeksekusi remedi: ${err?.message || 'Error server'}`);
+      toast.error(err?.response?.data?.detail || 'Gagal mengeksekusi aksi remediasi.');
     } finally {
-      setExecutingAction(null);
+      setExecAction(null);
     }
   };
 
-  const handleTestConnection = async () => {
-    setIsTesting(true);
-    try {
-      const res = await deviceApi.testDevice({
-        host: device?.host,
-        port: device?.port,
-        device_type: (device?.device_type as any) || 'MIKROTIK',
-      });
-      if (res.success) {
-        toast.success(res.message || 'Koneksi ke perangkat berhasil diverifikasi!');
-      } else {
-        toast.warning(res.message || 'Port tidak merespon.');
-      }
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Gagal menguji koneksi ke perangkat.');
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
-  const handleAnalyzeDevice = async () => {
+  const handleRunAI = async () => {
     setIsAnalyzing(true);
     try {
-      const res = await aiApi.analyzeDevice(id);
+      const res = await aiApi.analyzeDevice(String(device.id));
       setAiAnalysis(res.analysis);
-      toast.success('Analisis AI perangkat selesai.');
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Gagal menjalankan analisis AI perangkat.');
-      setAiAnalysis(null);
+    } catch {
+      setAiAnalysis('Analisis perangkat tidak dapat diselesaikan saat ini.');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleUnsnooze = async () => {
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setTestResult(null);
     try {
-      await deviceApi.unsnoozeDevice(id);
-      toast.success('Mode maintenance dinonaktifkan. Pengawasan alert dilanjutkan.');
-      refetchDevice();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Gagal mengakhiri mode maintenance.');
+      const res = await deviceApi.testSavedDevice(device.id);
+      setTestResult(res);
+      if (res.success) {
+        toast.success(res.message);
+      } else {
+        toast.error(res.message);
+      }
+    } catch {
+      const fallback = { success: false, message: `Tidak dapat menjangkau ${device.host}:${device.port || 8728}` };
+      setTestResult(fallback);
+      toast.error(fallback.message);
+    } finally {
+      setIsTesting(false);
     }
   };
 
-  const deviceName = device?.name || `Perangkat #${id}`;
-  const host = device?.host || device?.ip_address || '-';
-  const devType = device?.device_type || device?.type || 'MIKROTIK';
-  const isCoreRouter = String(devType).toUpperCase() === 'MIKROTIK' && (
-    device?.group?.toLowerCase().includes('core') ||
-    device?.name?.toLowerCase().includes('router') || 
-    device?.name?.toLowerCase().includes('core')
-  );
-
-  const cpu = metrics?.cpu_load;
-  const mem = metrics?.memory_usage;
-  const uptime = metrics?.uptime ?? device?.uptime ?? '-';
-  const boardName = metrics?.board_name || device?.board_name || '-';
-  const version = metrics?.version || device?.version || '-';
-
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Header */}
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
-            size="icon" 
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => navigate('/devices')}
-            className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white"
+            aria-label="Kembali ke daftar perangkat"
+            className="min-h-[44px] min-w-[44px] text-slate-400 hover:text-white bg-slate-900 border border-slate-800"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold tracking-tight text-slate-100">{deviceName}</h2>
-              <Badge variant="success" className="text-[10px] uppercase font-mono">
-                ONLINE
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold text-slate-100">{device.name}</h1>
+              <Badge variant={isOnline ? 'success' : isWarning ? 'warning' : 'destructive'}>
+                {statusUpper}
               </Badge>
-              <Badge variant="outline" className="text-[10px] uppercase font-mono text-cyan-400 border-cyan-500/30">
-                {String(devType)}
-              </Badge>
-              {device?.is_snoozed && (
-                <Badge variant="outline" className="text-[10px] uppercase font-mono text-amber-400 border-amber-500/40 bg-amber-500/10 flex items-center gap-1">
-                  <BellOff className="h-3 w-3" />
-                  MAINTENANCE
+              {device.is_snoozed && (
+                <Badge className="bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono text-[10px] gap-1">
+                  <BellOff className="h-3 w-3" /> MAINTENANCE SNOOZE
                 </Badge>
               )}
             </div>
-            <p className="text-xs font-mono text-slate-400 mt-0.5">{host} &bull; {boardName} ({version})</p>
+            <p className="text-xs font-mono text-slate-400 mt-1">
+              {device.host} • Port {device.port || 8728} • {(device.device_type || 'SNMP').toUpperCase()} • {metrics?.board_name || 'RouterOS'}
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleTestConnection}
+            disabled={isTesting}
+            className="min-h-[44px] bg-slate-900 border-slate-800 text-slate-200 hover:bg-slate-800 hover:text-cyan-400"
+          >
+            {isTesting ? <Loader2 className="h-4 w-4 mr-2 animate-spin text-cyan-400" /> : <Activity className="h-4 w-4 mr-2 text-cyan-400" />}
+            Tes Koneksi
+          </Button>
+
           {isAdmin && (
             <>
-              {device?.is_snoozed ? (
+              {device.is_snoozed ? (
                 <Button
-                  variant="outline"
                   size="sm"
-                  onClick={handleUnsnooze}
-                  className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs"
+                  variant="outline"
+                  disabled={unsnoozeMutation.isPending}
+                  onClick={() => unsnoozeMutation.mutate()}
+                  className="min-h-[44px] border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
                 >
-                  <BellRing className="h-3.5 w-3.5 mr-1.5 text-amber-400" />
-                  Akhiri Maintenance
+                  <Play className="h-3.5 w-3.5 mr-1.5" /> Akhiri Snooze
                 </Button>
               ) : (
                 <Button
-                  variant="outline"
                   size="sm"
-                  onClick={() => setIsSnoozeModalOpen(true)}
-                  className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
+                  variant="outline"
+                  onClick={() => setIsSnoozeOpen(true)}
+                  className="min-h-[44px] border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
                 >
-                  <BellOff className="h-3.5 w-3.5 mr-1.5 text-amber-400" />
-                  Snooze Alert
+                  <BellOff className="h-3.5 w-3.5 mr-1.5" /> Snooze Alert
                 </Button>
               )}
+
               <Button
-                variant="outline"
                 size="sm"
-                onClick={handleTestConnection}
-                disabled={isTesting}
-                className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
+                onClick={() => setIsEditOpen(true)}
+                className="min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold"
               >
-                <Radio className={`h-3.5 w-3.5 mr-1.5 ${isTesting ? 'animate-pulse text-cyan-400' : ''}`} />
-                {isTesting ? 'Menguji...' : 'Uji Koneksi'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditModalOpen(true)}
-                className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white text-xs"
-              >
-                <Pencil className="h-3.5 w-3.5 mr-1.5 text-cyan-400" />
-                Edit Perangkat
+                <Pencil className="h-4 w-4 mr-1.5" /> Edit Perangkat
               </Button>
             </>
           )}
-          <Button
-
-            size="sm"
-            onClick={() => {
-              refetchDevice();
-              refetchMetrics();
-            }}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"
-          >
-            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-            Refresh
-          </Button>
         </div>
       </div>
 
-      {device?.is_snoozed && (
-        <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+      {device.is_snoozed && (
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-200">
           <div className="flex items-center gap-2.5">
             <BellOff className="h-4 w-4 text-amber-400 shrink-0" />
             <div>
-              <span className="font-semibold text-amber-300">Mode Maintenance Aktif:</span>{' '}
-              <span>{device.snooze_reason || 'Pemeliharaan Terjadwal'}</span>
+              <strong>Perangkat dalam Mode Maintenance (Snooze Aktif):</strong> Notifikasi Telegram ditangguhkan sementara untuk perangkat ini.
+              {device.snooze_reason && <span className="ml-1 text-amber-300">Alasan: "{device.snooze_reason}"</span>}
               {device.snooze_until && (
-                <span className="text-amber-400/80 ml-1.5 font-mono text-[11px]">
-                  (hingga {new Date(device.snooze_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                <span className="ml-2 font-mono text-[11px] text-amber-400">
+                  (Berakhir: {new Date(device.snooze_until).toLocaleString('id-ID')})
                 </span>
               )}
             </div>
           </div>
-          {isAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleUnsnooze}
-              className="h-7 px-2.5 border-amber-500/40 bg-amber-950/40 text-amber-300 hover:bg-amber-500/20 text-xs shrink-0"
-            >
-              <BellRing className="h-3.5 w-3.5 mr-1" />
-              Akhiri Maintenance
-            </Button>
-          )}
         </div>
       )}
 
-      {/* Metric Highlights */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 flex items-center justify-between">
+      {testResult && (
+        <div
+          className={`p-3 rounded-lg border flex items-center gap-2.5 text-xs font-mono ${
+            testResult.success
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+          }`}
+        >
+          {testResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+          <span>{testResult.message}</span>
+        </div>
+      )}
+
+      <Card className="bg-slate-900 border-slate-800/80">
+        <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+              <Zap className="h-4 w-4" />
+            </div>
             <div>
-              <span className="text-xs text-slate-400 font-medium">CPU Load</span>
-              <h3 className="text-2xl font-bold text-cyan-400 mt-1">{cpu != null ? `${cpu}%` : '-'}</h3>
-              <span className="text-[10px] text-slate-500">{cpu != null ? 'Kondisi Terbaca' : 'Menunggu Polling'}</span>
+              <h3 className="text-sm font-semibold text-slate-100">NOVA Act (Tindakan Mitigasi & Diagnostik Terarah)</h3>
+              <p className="text-xs text-slate-400">
+                Eksekusi aksi ke perangkat secara aman dengan pencatatan jejak audit otomatis
+              </p>
             </div>
-            <div className="p-3 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-              <Activity className="h-5 w-5" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={execAction !== null}
+              onClick={() => handleRemediation('RUN_DIAGNOSTICS')}
+              className="min-h-[40px] bg-slate-950 border-slate-800 text-amber-400 hover:bg-amber-500/10 text-xs font-mono"
+            >
+              <Terminal className={`h-3.5 w-3.5 mr-1.5 ${execAction === 'RUN_DIAGNOSTICS-global' ? 'animate-pulse' : ''}`} />
+              Uji Jalur Ping & WAN
+            </Button>
+            {isAdmin && isMikrotik && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={execAction !== null}
+                onClick={() => handleRemediation('FLUSH_DNS')}
+                className="min-h-[40px] bg-slate-950 border-slate-800 text-cyan-400 hover:bg-cyan-500/10 text-xs font-mono"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${execAction === 'FLUSH_DNS-global' ? 'animate-spin' : ''}`} />
+                Flush DNS Cache
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={execAction !== null}
+                onClick={() => handleRemediation('ACKNOWLEDGE')}
+                className="min-h-[40px] bg-slate-950 border-slate-800 text-emerald-400 hover:bg-emerald-500/10 text-xs font-mono"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                Acknowledge Semua Alert
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Beban CPU</span>
+              <Cpu className="h-4 w-4 text-cyan-400" />
             </div>
+            <div className="text-2xl font-bold font-mono text-slate-100">{metrics?.cpu_load ?? 0}%</div>
+            <Progress value={metrics?.cpu_load ?? 0} indicatorClassName="bg-cyan-500" />
           </CardContent>
         </Card>
 
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-400 font-medium">Memori Terpakai</span>
-              <h3 className="text-2xl font-bold text-purple-400 mt-1">{mem != null ? `${mem}%` : '-'}</h3>
-              <span className="text-[10px] text-slate-500">{mem != null ? 'RAM Terbaca' : 'Menunggu Polling'}</span>
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Penggunaan Memori</span>
+              <HardDrive className="h-4 w-4 text-sky-400" />
             </div>
-            <div className="p-3 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
-              <Server className="h-5 w-5" />
-            </div>
+            <div className="text-2xl font-bold font-mono text-slate-100">{metrics?.memory_usage ?? 0}%</div>
+            <Progress value={metrics?.memory_usage ?? 0} indicatorClassName="bg-sky-500" />
           </CardContent>
         </Card>
 
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-400 font-medium">Latensi ICMP</span>
-              <h3 className="text-2xl font-bold text-amber-400 mt-1 font-mono">
-                {metrics?.latency_ms != null ? `${metrics.latency_ms.toFixed(1)}ms` : '-'}
-              </h3>
-              <span className="text-[10px] text-slate-400">
-                Loss: {metrics?.packet_loss != null ? `${metrics.packet_loss.toFixed(0)}%` : '0%'}
-              </span>
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Ping Lokal (RTT)</span>
+              <Activity className="h-4 w-4 text-amber-400" />
             </div>
-            <div className="p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              <Radio className="h-5 w-5" />
+            <div className="text-2xl font-bold font-mono text-slate-100">
+              {metrics?.latency_ms !== undefined ? `${metrics.latency_ms.toFixed(1)} ms` : '0.0 ms'}
             </div>
+            <p className={`text-[11px] font-mono ${(metrics?.packet_loss ?? 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+              Packet Loss: {metrics?.packet_loss ?? 0}%
+            </p>
           </CardContent>
         </Card>
 
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-400 font-medium">WAN Gateway Ping</span>
-              <h3 className="text-2xl font-bold text-blue-400 mt-1 font-mono">
-                {metrics?.wan_latency_ms != null ? `${metrics.wan_latency_ms.toFixed(1)}ms` : '-'}
-              </h3>
-              <span className="text-[10px] text-slate-400">
-                {metrics?.wan_packet_loss != null ? `Loss: ${metrics.wan_packet_loss.toFixed(0)}%` : (String(devType).toUpperCase() === 'SNMP' ? 'Khusus Router' : 'Target: 8.8.8.8')}
-              </span>
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Ping WAN (8.8.8.8)</span>
+              <Network className="h-4 w-4 text-cyan-400" />
             </div>
-            <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <Globe className="h-5 w-5" />
+            <div className="text-2xl font-bold font-mono text-slate-100">
+              {metrics?.wan_latency_ms !== undefined ? `${metrics.wan_latency_ms.toFixed(1)} ms` : '0.0 ms'}
             </div>
+            <p className={`text-[11px] font-mono ${(metrics?.wan_packet_loss ?? 0) > 0 ? 'text-rose-400' : 'text-cyan-400'}`}>
+              WAN Loss: {metrics?.wan_packet_loss ?? 0}%
+            </p>
           </CardContent>
         </Card>
 
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-400 font-medium">System Uptime</span>
-              <h3 className="text-lg font-bold text-emerald-400 mt-1 font-mono truncate max-w-[130px]">{uptime}</h3>
-              <span className="text-[10px] text-slate-500">Tanpa Reboot</span>
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Waktu Aktif Sistem</span>
+              <Clock className="h-4 w-4 text-emerald-400" />
             </div>
-            <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <Clock className="h-5 w-5" />
-            </div>
+            <div className="text-lg font-bold font-mono text-slate-100 pt-1 truncate">{metrics?.uptime || 'N/A'}</div>
+            <p className="text-[11px] text-slate-400">Versi OS: {metrics?.version || 'N/A'}</p>
           </CardContent>
         </Card>
 
-        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-400 font-medium">Status Port {String(devType).toUpperCase() === 'SNMP' ? 'SNMP' : 'API'}</span>
-              <h3 className="text-lg font-bold text-slate-100 mt-1 font-mono">Port {device?.port || (String(devType).toUpperCase() === 'SNMP' ? 161 : 8728)}</h3>
-              <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Ready
-              </span>
+        <Card className="bg-slate-900 border-slate-800/80">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Kesehatan Koneksi</span>
+              <Activity className={`h-4 w-4 ${isOnline ? 'text-emerald-400' : isWarning ? 'text-amber-400' : 'text-rose-400'}`} />
             </div>
-            <div className="p-3 rounded-xl bg-slate-800 text-slate-300 border border-slate-700">
-              <Network className="h-5 w-5" />
+            <div className={`text-lg font-bold font-mono pt-1 ${isOnline ? 'text-emerald-400' : isWarning ? 'text-amber-400' : 'text-rose-400'}`}>
+              {isOnline ? 'Terhubung' : isWarning ? 'Peringatan' : 'Terputus'}
             </div>
+            <p className="text-[11px] text-slate-400">Polling setiap {device.poll_interval || 30} dtk</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Dual-Provider Internet Telemetry (Khusus Router Core) */}
-      {isCoreRouter && <DualWanPanel deviceId={id} />}
-
-      {/* Historical Telemetry Chart */}
-      <HistoricalChart deviceId={id} />
-
-      {/* Detailed Tabs: Interfaces, DHCP, Routes, AI */}
-      <div className="space-y-4">
-        <div className="flex border-b border-slate-800 gap-4 text-xs sm:text-sm font-medium">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+        {[
+          { id: 'interfaces', label: 'Antarmuka (Interfaces)', icon: Network },
+          { id: 'dhcp', label: 'Sewa DHCP (Leases)', icon: Users },
+          { id: 'routes', label: 'Tabel Routing', icon: Route },
+          { id: 'syslog', label: `Syslog (${deviceSyslogs?.total ?? 0})`, icon: Terminal },
+          { id: 'remediation', label: `Log Mitigasi (${remediationLogs.length})`, icon: History },
+          { id: 'ai', label: 'Diagnostik AI', icon: Bot },
+        ].map((tab) => (
           <button
+            key={tab.id}
             type="button"
-            onClick={() => setActiveTab('interfaces')}
-            className={`pb-3 transition-colors flex items-center gap-2 ${
-              activeTab === 'interfaces' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 px-4 py-2 min-h-[40px] rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${
+              activeTab === tab.id
+                ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
-            <ArrowDownUp className="h-4 w-4" />
-            Interface & Traffic ({interfaces.length})
+            <tab.icon className="h-4 w-4 shrink-0" />
+            {tab.label}
           </button>
+        ))}
+      </div>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('dhcp')}
-            className={`pb-3 transition-colors flex items-center gap-2 ${
-              activeTab === 'dhcp' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Wifi className="h-4 w-4" />
-            DHCP Server Leases ({dhcpLeases.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('routes')}
-            className={`pb-3 transition-colors flex items-center gap-2 ${
-              activeTab === 'routes' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Network className="h-4 w-4" />
-            Routing Table ({routes.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('remediation')}
-            className={`pb-3 transition-colors flex items-center gap-2 ${
-              activeTab === 'remediation' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Zap className="h-4 w-4 text-amber-400" />
-            Remediasi & Aksi ({remediationLogs.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('syslog')}
-            className={`pb-3 transition-colors flex items-center gap-2 ${
-              activeTab === 'syslog' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <ScrollText className="h-4 w-4" />
-            Syslog ({deviceSyslogData?.total ?? 0})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('ai')}
-            className={`pb-3 transition-colors flex items-center gap-2 ${
-              activeTab === 'ai' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Bot className="h-4 w-4 text-cyan-400" />
-            AI Troubleshooting
-          </button>
-        </div>
-
-        {/* Tab 1: Interfaces Table */}
-        {activeTab === 'interfaces' && (
-          <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader className="bg-slate-950/60 border-b border-slate-800">
-                  <TableRow>
-                    <TableHead className="text-xs text-slate-400">Interface</TableHead>
-                    <TableHead className="text-xs text-slate-400">Tipe</TableHead>
-                    <TableHead className="text-xs text-slate-400">Status</TableHead>
-                    <TableHead className="text-xs text-slate-400">RX Traffic (In)</TableHead>
-                    <TableHead className="text-xs text-slate-400">TX Traffic (Out)</TableHead>
+      <Card className="bg-slate-900 border-slate-800/80">
+        <CardContent className="p-6">
+          {activeTab === 'interfaces' && (
+            <Table>
+              <TableHeader className="border-slate-800">
+                <TableRow className="border-slate-800">
+                  <TableHead className="text-slate-400">Nama</TableHead>
+                  <TableHead className="text-slate-400">Tipe</TableHead>
+                  <TableHead className="text-slate-400">Status</TableHead>
+                  <TableHead className="text-right text-slate-400">RX Bytes</TableHead>
+                  <TableHead className="text-right text-slate-400">TX Bytes</TableHead>
+                  {isAdmin && <TableHead className="text-right text-slate-400">Tindakan</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {interfaces.length === 0 ? (
+                  <TableRow className="border-slate-800">
+                    <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-slate-400">
+                      Belum ada data antarmuka untuk perangkat ini. Pastikan perangkat dapat dijangkau saat siklus polling.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {interfaces.map((iface: any, idx: number) => (
-                    <TableRow key={idx} className="border-b border-slate-800/80 hover:bg-slate-800/20">
-                      <TableCell className="font-semibold text-xs text-slate-200 font-mono">
-                        {iface.name}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 uppercase font-mono">
-                        {iface.type}
-                      </TableCell>
+                ) : (
+                  interfaces.map((iface, i) => (
+                    <TableRow key={i} className="border-slate-800/60">
+                      <TableCell className="font-mono font-semibold text-slate-200">{iface.name}</TableCell>
+                      <TableCell className="text-xs text-slate-400 uppercase">{iface.type}</TableCell>
                       <TableCell>
-                        <Badge 
-                          variant={iface.running ? 'success' : 'secondary'} 
-                          className="text-[10px] uppercase font-mono"
-                        >
-                          {iface.running ? 'Running (Up)' : 'Down'}
+                        <Badge variant={iface.running ? 'success' : 'secondary'}>
+                          {iface.running ? 'RUNNING' : 'DOWN'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-cyan-400">
-                        {formatBytes(iface.rx_bytes || 0)}
+                      <TableCell className="text-right font-mono text-xs text-cyan-400">
+                        {((iface.rx_bytes || 0) / 1048576).toFixed(2)} MB
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-purple-400">
-                        {formatBytes(iface.tx_bytes || 0)}
+                      <TableCell className="text-right font-mono text-xs text-sky-400">
+                        {((iface.tx_bytes || 0) / 1048576).toFixed(2)} MB
                       </TableCell>
+                      {isAdmin && (
+                        <TableCell className="text-right">
+                          {isMikrotik ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={execAction !== null}
+                              onClick={() => handleRemediation('RESTART_INTERFACE', iface.name)}
+                              className="min-h-[38px] text-[11px] font-mono text-amber-400 hover:bg-amber-500/10 border border-amber-500/20"
+                            >
+                              <RefreshCw className={`h-3 w-3 mr-1 ${execAction === `RESTART_INTERFACE-${iface.name}` ? 'animate-spin' : ''}`} />
+                              Restart
+                            </Button>
+                          ) : (
+                            <span className="text-[11px] font-mono text-slate-400">Read-Only (SNMP)</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
 
-        {/* Tab 2: DHCP Leases */}
-        {activeTab === 'dhcp' && (
-          <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader className="bg-slate-950/60 border-b border-slate-800">
-                  <TableRow>
-                    <TableHead className="text-xs text-slate-400">IP Address</TableHead>
-                    <TableHead className="text-xs text-slate-400">MAC Address</TableHead>
-                    <TableHead className="text-xs text-slate-400">Host Name</TableHead>
-                    <TableHead className="text-xs text-slate-400">Status</TableHead>
+          {activeTab === 'dhcp' && (
+            <Table>
+              <TableHeader className="border-slate-800">
+                <TableRow className="border-slate-800">
+                  <TableHead className="text-slate-400">Alamat IP</TableHead>
+                  <TableHead className="text-slate-400">Alamat MAC</TableHead>
+                  <TableHead className="text-slate-400">Nama Host</TableHead>
+                  <TableHead className="text-slate-400">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dhcpLeases.length === 0 ? (
+                  <TableRow className="border-slate-800">
+                    <TableCell colSpan={4} className="text-center py-8 text-slate-400">
+                      Tidak ada daftar sewa DHCP aktif pada perangkat ini.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dhcpLeases.map((lease: any, idx: number) => (
-                    <TableRow key={idx} className="border-b border-slate-800/80 hover:bg-slate-800/20">
-                      <TableCell className="font-mono text-xs text-cyan-300 font-semibold">
-                        {lease.address}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-slate-400">
-                        {lease.mac_address}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-200">
-                        {lease.host_name || 'Tidak Diketahui'}
-                      </TableCell>
+                ) : (
+                  dhcpLeases.map((lease, i) => (
+                    <TableRow key={i} className="border-slate-800/60">
+                      <TableCell className="font-mono text-cyan-400">{lease.address}</TableCell>
+                      <TableCell className="font-mono text-xs text-slate-400">{lease.mac_address}</TableCell>
+                      <TableCell className="text-slate-200">{lease.host_name}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-[10px] uppercase text-emerald-400 border-emerald-500/30">
+                        <Badge variant="success" className="uppercase text-[10px]">
                           {lease.status}
                         </Badge>
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
 
-        {/* Tab 3: Routing Table */}
-        {activeTab === 'routes' && (
-          <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader className="bg-slate-950/60 border-b border-slate-800">
-                  <TableRow>
-                    <TableHead className="text-xs text-slate-400">Destination Subnet</TableHead>
-                    <TableHead className="text-xs text-slate-400">Gateway</TableHead>
-                    <TableHead className="text-xs text-slate-400">Distance</TableHead>
+          {activeTab === 'routes' && (
+            <Table>
+              <TableHeader className="border-slate-800">
+                <TableRow className="border-slate-800">
+                  <TableHead className="text-slate-400">Alamat Tujuan (Destination)</TableHead>
+                  <TableHead className="text-slate-400">Gateway</TableHead>
+                  <TableHead className="text-slate-400">Jarak (Distance)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {routes.length === 0 ? (
+                  <TableRow className="border-slate-800">
+                    <TableCell colSpan={3} className="text-center py-8 text-slate-400">
+                      Tabel routing tidak tersedia untuk perangkat ini.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {routes.map((route: any, idx: number) => (
-                    <TableRow key={idx} className="border-b border-slate-800/80 hover:bg-slate-800/20">
-                      <TableCell className="font-mono text-xs text-slate-200 font-semibold">
-                        {route.dst_address}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-cyan-400">
-                        {route.gateway}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-slate-400">
-                        {route.distance}
-                      </TableCell>
+                ) : (
+                  routes.map((r, i) => (
+                    <TableRow key={i} className="border-slate-800/60">
+                      <TableCell className="font-mono text-slate-200">{r.dst_address}</TableCell>
+                      <TableCell className="font-mono text-cyan-400">{r.gateway}</TableCell>
+                      <TableCell className="font-mono text-slate-400">{r.distance}</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
 
-        {/* Tab 4: Remediasi & Mitigasi (NOVA Act) */}
-        {activeTab === 'remediation' && (
-          <div className="space-y-6">
-            {/* Action Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Card 1: Flush DNS */}
-              <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col justify-between">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                      <RefreshCw className="h-4 w-4 text-cyan-400" />
-                      Flush DNS Cache
-                    </CardTitle>
-                    <Badge variant="outline" className="text-[10px] font-mono text-cyan-400 border-cyan-500/30">
-                      /ip dns cache flush
-                    </Badge>
-                  </div>
-                  <CardDescription className="text-xs text-slate-400 mt-2">
-                    Bersihkan seluruh record cache DNS internal di MikroTik untuk mengatasi nama host atau domain resolver yang bermasalah.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <Button
-                    size="sm"
-                    onClick={() => handleExecuteRemediation('FLUSH_DNS', 'global')}
-                    disabled={executingAction !== null}
-                    className="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs"
-                  >
-                    {executingAction === 'FLUSH_DNS' ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        Mengeksekusi...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="h-3.5 w-3.5 mr-1.5" />
-                        Eksekusi Flush DNS
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Card 2: Run Diagnostics */}
-              <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col justify-between">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                      <Radio className="h-4 w-4 text-amber-400" />
-                      Uji Diagnostik Cepat
-                    </CardTitle>
-                    <Badge variant="outline" className="text-[10px] font-mono text-amber-400 border-amber-500/30">
-                      Dual-Ping Check
-                    </Badge>
-                  </div>
-                  <CardDescription className="text-xs text-slate-400 mt-2">
-                    Jalankan ping 2 arah: Server NOVA ke Router untuk cek hop lokal, dan Router ke WAN Gateway (8.8.8.8) untuk cek uplink ISP.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <Button
-                    size="sm"
-                    onClick={() => handleExecuteRemediation('RUN_DIAGNOSTICS', 'icmp-dual')}
-                    disabled={executingAction !== null}
-                    className="w-full bg-amber-600 hover:bg-amber-500 text-white text-xs"
-                  >
-                    {executingAction === 'RUN_DIAGNOSTICS' ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        Menguji Jaringan...
-                      </>
-                    ) : (
-                      <>
-                        <Radio className="h-3.5 w-3.5 mr-1.5" />
-                        Jalankan Uji Diagnostik
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Card 3: Restart Interface */}
-              <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col justify-between">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                      <RotateCcw className="h-4 w-4 text-purple-400" />
-                      Siklus Restart Interface
-                    </CardTitle>
-                    <Badge variant="outline" className="text-[10px] font-mono text-purple-400 border-purple-500/30">
-                      disable &gt; 2s &gt; enable
-                    </Badge>
-                  </div>
-                  <CardDescription className="text-xs text-slate-400 mt-2">
-                    Lakukan bounce port (disable lalu enable kembali setelah jeda 2 detik) untuk memulihkan interface yang mengalami flapping atau hang.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0 space-y-3">
-                  <Select
-                    className="text-xs bg-slate-950 border-slate-800 text-slate-200"
-                    options={[
-                      { value: '', label: 'Pilih interface target...' },
-                      ...interfaces.map((i: any) => ({
-                        value: i.name,
-                        label: `${i.name} (${i.running ? 'Up' : 'Down'})`,
-                      })),
-                    ]}
-                    value={selectedInterface}
-                    onChange={(e) => setSelectedInterface(e.target.value)}
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (!selectedInterface) {
-                        toast.error('Pilih interface terlebih dahulu sebelum mengeksekusi');
-                        return;
-                      }
-                      handleExecuteRemediation('RESTART_INTERFACE', selectedInterface);
-                    }}
-                    disabled={executingAction !== null || !selectedInterface}
-                    className="w-full bg-purple-600 hover:bg-purple-500 text-white text-xs disabled:opacity-50"
-                  >
-                    {executingAction === 'RESTART_INTERFACE' ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        Merestart {selectedInterface}...
-                      </>
-                    ) : (
-                      <>
-                        <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                        Restart Interface
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Audit Log Table */}
-            <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-800">
+          {activeTab === 'syslog' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                    <History className="h-4 w-4 text-cyan-400" />
-                    Jejak Audit Remediasi (NOVA Act Audit Trail)
-                  </CardTitle>
-                  <CardDescription className="text-xs text-slate-400">
-                    Catatan seluruh eksekusi perbaikan melalui antarmuka web dashboard maupun Telegram Bot
-                  </CardDescription>
+                  <CardTitle className="text-base text-slate-100">Aliran Syslog Perangkat</CardTitle>
+                  <p className="text-xs text-slate-400">
+                    50 pesan log terbaru yang dikirim dari {device.name} ({device.host})
+                  </p>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => refetchLogs()}
-                  className="border-slate-800 bg-slate-900 text-slate-300 hover:text-white text-xs"
+                  onClick={() => navigate('/syslog')}
+                  className="min-h-[40px] border-slate-800 bg-slate-950 text-cyan-400 hover:bg-slate-800 text-xs"
                 >
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                  Segarkan Log
+                  Buka Pusat Syslog
                 </Button>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader className="bg-slate-950/60 border-b border-slate-800">
-                    <TableRow>
-                      <TableHead className="text-xs text-slate-400">Waktu</TableHead>
-                      <TableHead className="text-xs text-slate-400">Aksi</TableHead>
-                      <TableHead className="text-xs text-slate-400">Target</TableHead>
-                      <TableHead className="text-xs text-slate-400">Kanal</TableHead>
-                      <TableHead className="text-xs text-slate-400">Operator</TableHead>
-                      <TableHead className="text-xs text-slate-400">Status</TableHead>
-                      <TableHead className="text-xs text-slate-400">Hasil / Detail</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {remediationLogs.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-xs text-slate-500">
-                          Belum ada riwayat tindakan remediasi untuk perangkat ini.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      remediationLogs.map((item: RemediationLogItem) => (
-                        <TableRow key={item.id} className="border-b border-slate-800/80 hover:bg-slate-800/20">
-                          <TableCell className="font-mono text-xs text-slate-400 whitespace-nowrap">
-                            {formatDate(item.created_at)}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="font-mono text-[10px] text-cyan-300 border-cyan-500/30">
-                              {item.action_type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-slate-300">
-                            {item.target}
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-[11px] font-mono text-slate-400">
-                              {item.trigger_channel}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-xs text-slate-300">
-                            {item.executed_by}
-                          </TableCell>
-                          <TableCell>
-                            {item.status === 'SUCCESS' ? (
-                              <Badge variant="success" className="text-[10px] font-mono">
-                                SUCCESS
-                              </Badge>
-                            ) : item.status === 'FAILED' ? (
-                              <Badge variant="destructive" className="text-[10px] font-mono">
-                                FAILED
-                              </Badge>
-                            ) : (
-                              <Badge variant="warning" className="text-[10px] font-mono">
-                                PENDING
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-slate-300 max-w-md truncate" title={item.output_details}>
-                            {item.output_details || '-'}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              </div>
 
-        {/* Tab 5: Syslog Device Stream */}
-        {activeTab === 'syslog' && (
-          <Card className="border-slate-800 bg-slate-950 rounded-xl overflow-hidden font-mono shadow-2xl">
-            <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-              <span className="text-slate-300 font-semibold flex items-center gap-1.5">
-                <Terminal className="h-3.5 w-3.5 text-cyan-400" />
-                Syslog Real-Time: {deviceName} ({host})
-              </span>
-              <span className="text-[11px] font-sans text-slate-500">
-                {deviceSyslogData?.items?.length ?? 0} log terbaru
-              </span>
-            </div>
-
-            <div className="p-4 max-h-[500px] overflow-y-auto space-y-1.5 text-xs text-slate-300">
-              {!deviceSyslogData?.items || deviceSyslogData.items.length === 0 ? (
-                <div className="py-12 text-center text-slate-500 space-y-2 font-sans">
-                  <ScrollText className="h-8 w-8 mx-auto text-slate-600 mb-2" />
-                  <p className="font-semibold text-slate-400 text-sm">Belum ada paket Syslog dari perangkat ini</p>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    Arahkan remote logging MikroTik ke server NOVA (port 514 UDP) untuk melihat log live di sini.
-                  </p>
-                </div>
-              ) : (
-                deviceSyslogData.items.map((log) => {
-                  const s = log.severity.toUpperCase();
-                  const sevClass = 
-                    s === 'EMERGENCY' || s === 'CRITICAL' || s === 'ALERT' ? 'bg-red-500/10 text-red-400 border-red-500/30' :
-                    s === 'ERROR' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-                    s === 'WARNING' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-                    s === 'NOTICE' || s === 'INFO' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' :
-                    'bg-slate-800 text-slate-400 border-slate-700';
-
-                  const formattedTime = new Date(log.timestamp).toLocaleTimeString([], {
-                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-                  });
-
-                  return (
-                    <div 
-                      key={log.id} 
-                      className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-2.5 p-1.5 rounded hover:bg-slate-900/60 transition-colors border-l-2 border-transparent hover:border-cyan-500/50"
-                    >
-                      <span className="text-[11px] text-slate-500 shrink-0 select-none">
-                        {formattedTime}
+              <div className="rounded-lg border border-slate-800 bg-slate-950 divide-y divide-slate-900 font-mono text-xs max-h-[420px] overflow-y-auto">
+                {loadingSyslogs ? (
+                  <div className="py-12 text-center text-slate-400">Memuat log perangkat...</div>
+                ) : !deviceSyslogs?.items || deviceSyslogs.items.length === 0 ? (
+                  <div className="py-10 text-center text-slate-400 font-sans">
+                    Belum ada pesan Syslog yang diterima dari perangkat ini.
+                  </div>
+                ) : (
+                  deviceSyslogs.items.map((log) => (
+                    <div key={log.id} className="flex flex-col sm:flex-row sm:items-center gap-2 px-3.5 py-2 hover:bg-slate-900/60">
+                      <span className="text-slate-400 w-36 shrink-0">
+                        {new Date(log.timestamp).toLocaleString('id-ID', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
                       </span>
-                      <Badge variant="outline" className={`text-[9px] uppercase font-mono px-1.5 py-0 shrink-0 ${sevClass}`}>
+                      <Badge
+                        variant={
+                          ['EMERGENCY', 'ALERT', 'CRITICAL', 'ERROR'].includes(log.severity?.toUpperCase())
+                            ? 'destructive'
+                            : log.severity?.toUpperCase() === 'WARNING'
+                              ? 'warning'
+                              : 'secondary'
+                        }
+                        className="text-[10px] w-20 justify-center shrink-0"
+                      >
                         {log.severity}
                       </Badge>
                       {log.topic && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 text-amber-300/80 border border-slate-800 shrink-0">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 text-[10px] shrink-0">
                           {log.topic}
                         </span>
                       )}
-                      <span className="text-slate-200 break-words flex-1 selection:bg-cyan-500/30 selection:text-white">
-                        {log.message}
-                      </span>
+                      <span className="text-slate-200 break-all">{log.message}</span>
                     </div>
-                  );
-                })
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'remediation' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base text-slate-100">Jejak Audit Remediasi (NOVA Act)</CardTitle>
+                  <p className="text-xs text-slate-400">
+                    Riwayat tindakan mitigasi yang dieksekusi dari Dashboard maupun Telegram Bot
+                  </p>
+                </div>
+              </div>
+              {remediationLogs.length === 0 ? (
+                <div className="py-8 text-center text-xs font-mono text-slate-400 border border-dashed border-slate-800 rounded-lg">
+                  Belum ada riwayat tindakan mitigasi pada perangkat ini.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader className="border-slate-800">
+                    <TableRow className="border-slate-800">
+                      <TableHead className="text-slate-400">Waktu</TableHead>
+                      <TableHead className="text-slate-400">Tipe Aksi</TableHead>
+                      <TableHead className="text-slate-400">Target</TableHead>
+                      <TableHead className="text-slate-400">Kanal & Eksekutor</TableHead>
+                      <TableHead className="text-slate-400">Status</TableHead>
+                      <TableHead className="text-slate-400">Detail Output</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {remediationLogs.map((log) => (
+                      <TableRow key={log.id} className="border-slate-800/60">
+                        <TableCell className="font-mono text-xs text-slate-400 whitespace-nowrap">
+                          {new Date(log.created_at).toLocaleString('id-ID')}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs font-semibold text-cyan-400">
+                          {log.action_type}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-slate-300">{log.target}</TableCell>
+                        <TableCell className="text-xs text-slate-300">
+                          <Badge variant="secondary" className="mr-1.5 text-[10px]">
+                            {log.trigger_channel}
+                          </Badge>
+                          <span className="font-mono text-slate-400">{log.executed_by}</span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={log.status === 'SUCCESS' ? 'success' : 'destructive'} className="text-[10px]">
+                            {log.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-300 max-w-md">{log.output_details}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
             </div>
-          </Card>
-        )}
+          )}
 
-        {/* Tab 6: AI Troubleshooting */}
-        {activeTab === 'ai' && (
-          <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-800">
-              <div>
-                <CardTitle className="text-base text-slate-100 flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-cyan-400" />
-                  Analisis Diagnostik AI Spesifik Perangkat
-                </CardTitle>
-                <CardDescription className="text-xs text-slate-400">
-                  Evaluasi otomatis terhadap resource, routing, dan traffic interface {deviceName}
-                </CardDescription>
+          {activeTab === 'ai' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base text-slate-100">Pemeriksaan Mendalam Perangkat</CardTitle>
+                  <p className="text-xs text-slate-400">Evaluasi metrik dan konfigurasi untuk {device.name}</p>
+                </div>
+                <Button
+                  onClick={handleRunAI}
+                  disabled={isAnalyzing}
+                  className="min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold"
+                >
+                  <Bot className="h-4 w-4 mr-2" />
+                  {isAnalyzing ? 'Menganalisis...' : 'Jalankan Diagnostik'}
+                </Button>
               </div>
-              <Button
-                size="sm"
-                onClick={handleAnalyzeDevice}
-                disabled={isAnalyzing}
-                className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                {isAnalyzing ? 'Menganalisis...' : 'Jalankan Analisis'}
-              </Button>
-            </CardHeader>
-            <CardContent className="p-6">
+
               {aiAnalysis ? (
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800/80 text-slate-200 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-sans">
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-200 whitespace-pre-line leading-relaxed">
                   {aiAnalysis}
                 </div>
               ) : (
-                <div className="text-center py-10 text-slate-400">
-                  <Bot className="h-10 w-10 text-cyan-500/40 mx-auto mb-3" />
-                  <p className="text-sm font-medium text-slate-300">Belum ada hasil analisis.</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Klik tombol "Jalankan Analisis" untuk meminta saran troubleshooting dari NOVA AI.
-                  </p>
+                <div className="py-12 text-center text-slate-400 text-sm border border-dashed border-slate-800 rounded-xl">
+                  Klik "Jalankan Diagnostik" untuk menghasilkan laporan pemeriksaan lengkap bagi perangkat ini.
                 </div>
               )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <EditDeviceModal
-        device={device || null}
-        open={isEditModalOpen}
-        onOpenChange={setIsEditModalOpen}
-        onSuccess={() => refetchDevice()}
-      />
-
-      <SnoozeDeviceModal
-        device={device || null}
-        open={isSnoozeModalOpen}
-        onOpenChange={setIsSnoozeModalOpen}
-        onSuccess={() => refetchDevice()}
-      />
+      <EditDeviceModal open={isEditOpen} onOpenChange={setIsEditOpen} device={device} />
+      <SnoozeDeviceModal open={isSnoozeOpen} onOpenChange={setIsSnoozeOpen} device={device} />
     </div>
   );
-}
+};

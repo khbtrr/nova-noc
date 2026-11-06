@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -17,6 +16,9 @@ logger = logging.getLogger("nova.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not settings.DEBUG and settings.JWT_SECRET_KEY in ("secret", "your-jwt-secret-key-change-in-production"):
+        logger.warning("Production security notice: JWT_SECRET_KEY masih menggunakan nilai default. Segera perbarui di .env.")
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         from sqlalchemy import text
@@ -24,12 +26,11 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_snoozed BOOLEAN DEFAULT FALSE;"))
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snooze_until TIMESTAMP WITH TIME ZONE;"))
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snooze_reason VARCHAR;"))
-        
+
     async with async_session_maker() as db:
         await create_default_admin(db)
         await seed_initial_data(db)
-        
-        # Auto-migrate any unencrypted device credentials with Fernet
+
         try:
             from sqlalchemy.future import select
             from app.models.device import Device
@@ -59,27 +60,26 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Scheduler could not start: {e}")
 
     try:
-        from app.services.syslog_service import start_syslog_server, stop_syslog_server, cleanup_old_syslogs
+        from app.services.syslog_service import start_syslog_server, cleanup_old_syslogs
         await start_syslog_server()
-        # Clean up expired logs older than 7 days
         await cleanup_old_syslogs(retention_days=7)
     except Exception as e:
         logger.warning(f"Syslog receiver could not start: {e}")
 
     try:
-        from app.services.flow.flow_service import start_flow_receiver, stop_flow_receiver
+        from app.services.flow.flow_service import start_flow_receiver
         await start_flow_receiver()
     except Exception as e:
         logger.warning(f"NetFlow receiver could not start: {e}")
 
     try:
-        from app.notifications.telegram_worker import start_telegram_worker, stop_telegram_worker
+        from app.notifications.telegram_worker import start_telegram_worker
         await start_telegram_worker()
     except Exception as e:
         logger.warning(f"Telegram worker could not start: {e}")
-    
+
     yield
-    
+
     try:
         from app.services.flow.flow_service import stop_flow_receiver
         stop_flow_receiver()
@@ -107,20 +107,24 @@ app = FastAPI(
     title="NOVA: Network Operations & Vision Analytics",
     description="Sistem Network Operations Center untuk monitoring dan telemetri jaringan real-time",
     version="1.0.0",
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
     lifespan=lifespan
 )
 
+cors_origins = settings.allowed_origins_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_origins,
+    allow_credentials="*" not in cors_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 app.include_router(api_router, prefix="/api")
 
 @app.get("/api/health")
+@app.get("/health")
 async def health_check():
     return {
         "status": "ok",
@@ -134,7 +138,7 @@ async def websocket_endpoint(websocket: WebSocket):
     if not token:
         await websocket.close(code=1008, reason="Missing authentication token")
         return
-    
+
     from app.core.security import decode_access_token
     payload = decode_access_token(token)
     if not payload or not payload.get("sub"):
@@ -151,4 +155,3 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
     except Exception:
         manager.disconnect(websocket)
-

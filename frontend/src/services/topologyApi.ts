@@ -1,17 +1,18 @@
 import { api } from './api';
 
 export interface TopologyNodeData {
-  id: string | number;
+  [key: string]: unknown;
+  id?: string | number;
   label: string;
   host: string;
-  mac: string;
+  mac?: string;
   tier: 'wan' | 'core' | 'switch' | 'ap' | string;
   device_type: string;
-  vendor: string;
-  board: string;
+  vendor?: string;
+  board?: string;
   status: string;
   is_monitored: boolean;
-  interface: string;
+  interface?: string;
   is_custom?: boolean;
 }
 
@@ -52,6 +53,8 @@ export interface TopologyResponse {
   summary: TopologySummary;
 }
 
+export type TopologyDataResponse = TopologyResponse;
+
 export interface PromoteDeviceDTO {
   label: string;
   host: string;
@@ -72,7 +75,7 @@ export const topologyApi = {
     return res.data;
   },
 
-  saveTopology: async (payload: { nodes: TopologyNode[]; edges: TopologyEdge[] }): Promise<{ status: string; message: string; data: TopologyResponse }> => {
+  saveTopology: async (payload: { nodes: any[]; edges: any[] }): Promise<{ status: string; message: string; data: TopologyResponse }> => {
     const res = await api.post('/topology/save', payload);
     return res.data;
   },
@@ -85,5 +88,5 @@ export const topologyApi = {
   promoteNeighbor: async (dto: PromoteDeviceDTO): Promise<{ status: string; message: string; device: any }> => {
     const res = await api.post('/topology/promote', dto);
     return res.data;
-  }
+  },
 };

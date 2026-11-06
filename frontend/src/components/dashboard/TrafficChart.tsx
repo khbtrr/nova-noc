@@ -1,125 +1,198 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { formatLocalTime } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Activity, ShieldAlert, CheckCircle2, Sparkles, RefreshCw, Terminal, Zap } from 'lucide-react';
 import { useDevices } from '@/hooks/useDevices';
-import { useQuery } from '@tanstack/react-query';
-import { metricsApi } from '@/services/metricsApi';
-import { aiApi } from '@/services/aiApi';
-import { ArrowDownUp, AlertTriangle } from 'lucide-react';
+import { useDeviceMetrics, useActiveAnomalies } from '@/hooks/useMetrics';
+import { remediationApi } from '@/services/remediationApi';
+import { useAuthStore } from '@/stores/authStore';
+import { toast } from 'sonner';
 
-export default function TrafficChart() {
+interface TrafficPoint {
+  time: string;
+  rx: number;
+  tx: number;
+}
+
+export const TrafficChart: React.FC = () => {
   const { devices } = useDevices();
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
+  const primaryDevice = devices.find((d) => d.status?.toUpperCase() === 'ONLINE') || devices[0];
+  const { metrics } = useDeviceMetrics(primaryDevice?.id || '');
+  const { activeAnomalies, resolveAnomaly } = useActiveAnomalies();
+  const [data, setData] = useState<TrafficPoint[]>([]);
+  const [execAction, setExecAction] = useState<string | null>(null);
 
-  const activeDeviceId = selectedDeviceId || (devices?.[0]?.id ? String(devices[0].id) : '');
-
-  const { data: metricsHistory } = useQuery({
-    queryKey: ['traffic-history', activeDeviceId],
-    queryFn: () => (activeDeviceId ? metricsApi.getMetricsHistory(activeDeviceId, '1h') : Promise.resolve([])),
-    enabled: Boolean(activeDeviceId),
-    refetchInterval: 15000,
-  });
-
-  const { data: activeAnomalies = [] } = useQuery({
-    queryKey: ['active-anomalies'],
-    queryFn: () => aiApi.getActiveAnomalies(),
-    refetchInterval: 10000,
-  });
-
-  const currentAnomaly = activeAnomalies.find((a: any) => String(a.device_id) === String(activeDeviceId));
-
-  const chartData = useMemo(() => {
-    if (metricsHistory && Array.isArray((metricsHistory as any).timestamps)) {
-      const hist = metricsHistory as any;
-      return hist.timestamps.map((t: string, idx: number) => ({
-        time: formatLocalTime(t, true),
-        rx: Number((Number(hist.rx?.[idx] ?? 0) / 1000).toFixed(2)),
-        tx: Number((Number(hist.tx?.[idx] ?? 0) / 1000).toFixed(2)),
-      }));
+  const handleQuickRemediation = async (deviceId: number, actionType: string, target: string = 'global') => {
+    setExecAction(`${deviceId}-${actionType}`);
+    try {
+      const res = await remediationApi.executeAction({
+        device_id: deviceId,
+        action_type: actionType,
+        target,
+      });
+      if (res.success) {
+        toast.success(`[NOVA Act] ${res.message}`);
+        if (actionType === 'ACKNOWLEDGE') {
+          resolveAnomaly(deviceId);
+        }
+      } else {
+        toast.error(`[NOVA Act] ${res.message}`);
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Gagal mengeksekusi aksi remediasi.');
+    } finally {
+      setExecAction(null);
     }
-    return [];
-  }, [metricsHistory]);
+  };
 
-  const hasData = chartData.length > 0;
+  useEffect(() => {
+    if (!metrics) return;
+
+    const now = new Date();
+    const timeLabel = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const rxMbps = Number(((metrics.rx_kbps || 0) / 1000).toFixed(2));
+    const txMbps = Number(((metrics.tx_kbps || 0) / 1000).toFixed(2));
+
+    setData((prev) => {
+      const next = [...prev, { time: timeLabel, rx: rxMbps, tx: txMbps }];
+      return next.length > 20 ? next.slice(next.length - 20) : next;
+    });
+  }, [metrics]);
 
   return (
-    <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl h-full flex flex-col">
-      <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-slate-800/80">
+    <Card className="bg-slate-900 border-slate-800/80 col-span-1 lg:col-span-2">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle className="text-base font-semibold text-slate-100 flex items-center gap-2">
-            <ArrowDownUp className="h-4 w-4 text-cyan-400" />
-            Trafik Bandwidth Real-Time
+            <Activity className="h-4 w-4 text-cyan-400" />
+            Throughput Jaringan Real-Time (Mbps)
           </CardTitle>
-          <CardDescription className="text-xs text-slate-400">
-            Monitoring throughput transmisi data RX/TX dalam Mbps
-          </CardDescription>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {primaryDevice
+              ? `Trafik agregat langsung dari ${primaryDevice.name} (${primaryDevice.host})`
+              : 'Menunggu perangkat terhubung'}
+          </p>
         </div>
-
-        <div className="flex items-center gap-3">
-          {currentAnomaly && (
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium animate-pulse">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span>Anomali: {currentAnomaly.type === 'TRAFFIC_SPIKE' ? 'Lonjakan Trafik' : 'Drop Trafik'} ({currentAnomaly.deviation_percent > 0 ? `+${currentAnomaly.deviation_percent}%` : `${currentAnomaly.deviation_percent}%`})</span>
-            </div>
-          )}
-
-          {devices && devices.length > 0 && (
-            <select
-              value={activeDeviceId}
-              onChange={(e) => setSelectedDeviceId(e.target.value)}
-              className="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-            >
-              {devices.map((d: any) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.host || d.ip_address})
-                </option>
-              ))}
-            </select>
-          )}
+        <div className="flex items-center gap-4 text-xs font-mono">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-cyan-400" />
+            <span className="text-slate-300">RX (Unduh)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-sky-400" />
+            <span className="text-slate-300">TX (Unggah)</span>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 p-4 flex flex-col justify-center">
-        {hasData ? (
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorRx" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="colorTx" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-              <YAxis 
-                axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}}
-                tickFormatter={(value) => `${value} Mbps`}
-                width={70}
-              />
-              <Tooltip 
-                contentStyle={{backgroundColor: '#0f172a', borderColor: '#1e293b', fontSize: '12px'}}
-                formatter={(value: number) => [`${Number(value).toFixed(2)} Mbps`, undefined]}
-              />
-              <Area type="monotone" dataKey="rx" stroke="#06b6d4" strokeWidth={2} fillOpacity={1} fill="url(#colorRx)" name="RX (Download)" />
-              <Area type="monotone" dataKey="tx" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorTx)" name="TX (Upload)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="py-12 text-center text-slate-400">
-            <ArrowDownUp className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-xs font-semibold text-slate-300">Belum ada aliran telemetri trafik</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              {activeDeviceId 
-                ? 'Menunggu polling pertama atau perangkat sedang offline.' 
-                : 'Daftarkan perangkat untuk melihat grafik throughput.'}
-            </p>
+      <CardContent>
+        {activeAnomalies.length > 0 && (
+          <div className="mb-4 space-y-2">
+            {activeAnomalies.map((anom) => (
+              <div
+                key={anom.id}
+                className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/40 text-slate-200 flex flex-col gap-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+                    <ShieldAlert className="h-4 w-4 text-rose-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-rose-400">
+                      NOVA Sight: {anom.type === 'TRAFFIC_SPIKE' ? 'Lonjakan Trafik Abnormal' : 'Penurunan Trafik Drastis'}
+                    </span>
+                    <span className="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      {anom.device_name} • {anom.current_mbps} Mbps (Baseline: {anom.baseline_mbps} Mbps)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => resolveAnomaly(anom.device_id)}
+                    className="text-[11px] font-medium px-3 py-1.5 min-h-[36px] rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1 transition-colors"
+                  >
+                    <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Tandai Selesai
+                  </button>
+                </div>
+                <div className="text-xs text-slate-300 bg-slate-950/70 p-2.5 rounded-lg border border-slate-800/80 whitespace-pre-line leading-relaxed">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-cyan-400 mb-1">
+                    <Sparkles className="h-3 w-3" /> Analisis Akar Masalah (RCA):
+                  </div>
+                  {anom.rca_analysis}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                    <Zap className="h-3 w-3 text-amber-400" /> NOVA Act (Tindakan Mitigasi Cepat):
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        disabled={execAction !== null}
+                        onClick={() => handleQuickRemediation(anom.device_id, 'FLUSH_DNS')}
+                        className="text-[11px] font-mono px-3 py-1.5 min-h-[36px] rounded bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 flex items-center gap-1 transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${execAction === `${anom.device_id}-FLUSH_DNS` ? 'animate-spin' : ''}`} />
+                        Flush DNS Cache
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={execAction !== null}
+                      onClick={() => handleQuickRemediation(anom.device_id, 'RUN_DIAGNOSTICS')}
+                      className="text-[11px] font-mono px-3 py-1.5 min-h-[36px] rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      <Terminal className={`h-3 w-3 ${execAction === `${anom.device_id}-RUN_DIAGNOSTICS` ? 'animate-pulse' : ''}`} />
+                      Uji Jalur Ping
+                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        disabled={execAction !== null}
+                        onClick={() => handleQuickRemediation(anom.device_id, 'ACKNOWLEDGE')}
+                        className="text-[11px] font-mono px-3 py-1.5 min-h-[36px] rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 transition-colors disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="h-3 w-3" /> Acknowledge Insiden
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
+        <div className="h-[280px] w-full pt-2">
+          {data.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-xs font-mono text-slate-400 border border-dashed border-slate-800 rounded-lg">
+              Mengumpulkan sampel telemetri trafik...
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorRx" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorTx" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px', fontSize: '12px' }}
+                  itemStyle={{ color: '#e2e8f0' }}
+                />
+                <Area type="monotone" dataKey="rx" name="RX (Mbps)" stroke="#06b6d4" strokeWidth={2} fillOpacity={1} fill="url(#colorRx)" />
+                <Area type="monotone" dataKey="tx" name="TX (Mbps)" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#colorTx)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
-}
+};

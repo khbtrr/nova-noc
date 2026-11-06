@@ -5,13 +5,15 @@ export interface Device {
   id: string | number;
   name: string;
   host: string;
-  ip_address?: string; // alias for host
+  ip_address?: string;
   device_type: DeviceType;
-  type?: DeviceType; // alias
+  type?: DeviceType;
   port?: number;
   username?: string;
   snmp_community?: string;
   snmp_version?: string;
+  has_snmp_community?: boolean;
+  has_password?: boolean;
   poll_interval?: number;
   is_enabled?: boolean;
   group?: string;

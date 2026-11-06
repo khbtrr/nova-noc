@@ -4,9 +4,9 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.models.device import Device, DeviceType, DeviceStatus
-from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceTestResult, DeviceSnoozeRequest
+from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceTestResult, DeviceTestRequest, DeviceSnoozeRequest
 from app.core.exceptions import NotFoundException
-from app.core.crypto import encrypt_credential, decrypt_credential
+from app.core.crypto import encrypt_credential, decrypt_credential, is_encrypted
 from app.collectors.scheduler import update_device_job, remove_device_job
 
 async def get_device(db: AsyncSession, device_id: int) -> Device:
@@ -27,15 +27,14 @@ async def create_device(db: AsyncSession, device_in: DeviceCreate) -> Device:
     if device_data.get("snmp_community"):
         device_data["snmp_community"] = encrypt_credential(device_data["snmp_community"])
     device = Device(**device_data)
-    device.status = DeviceStatus.ONLINE  # Start as online/pending poll
+    device.status = DeviceStatus.ONLINE
     db.add(device)
     await db.commit()
     await db.refresh(device)
-    
-    # Register in scheduler
+
     if device.is_enabled:
         await update_device_job(device.id, device.poll_interval or 30)
-    
+
     return device
 
 async def update_device(db: AsyncSession, device_id: int, device_in: DeviceUpdate) -> Device:
@@ -43,22 +42,23 @@ async def update_device(db: AsyncSession, device_id: int, device_in: DeviceUpdat
     update_data = device_in.model_dump(exclude_unset=True)
     for k, v in update_data.items():
         if k == "password":
-            if not v:
+            if not v or is_encrypted(v):
                 continue
             v = encrypt_credential(v)
-        elif k == "snmp_community" and v:
+        elif k == "snmp_community":
+            if not v or is_encrypted(v):
+                continue
             v = encrypt_credential(v)
         setattr(device, k, v)
     device.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(device)
-    
-    # Update scheduler job
+
     if device.is_enabled:
         await update_device_job(device.id, device.poll_interval or 30)
     else:
         remove_device_job(device.id)
-        
+
     return device
 
 async def snooze_device(db: AsyncSession, device_id: int, snooze_in: DeviceSnoozeRequest) -> Device:
@@ -90,31 +90,31 @@ async def unsnooze_device(db: AsyncSession, device_id: int) -> Device:
 async def delete_device(db: AsyncSession, device_id: int):
     device = await get_device(db, device_id)
     remove_device_job(device_id)
-    
-    # Clean up associated alerts and device-specific rules before deleting
+
     from app.models.alert import Alert
     from app.models.alert_rule import AlertRule
     from sqlalchemy import delete
     await db.execute(delete(Alert).filter(Alert.device_id == device_id))
     await db.execute(delete(AlertRule).filter(AlertRule.device_id == device_id))
-    
+
     await db.delete(device)
     await db.commit()
 
-async def test_device_connection(device: Device) -> DeviceTestResult:
-    """Test TCP / network connectivity to the target device host & port."""
-    host = device.host
-    port = device.port or (8728 if device.device_type == DeviceType.MIKROTIK else 161)
-    
-    if device.device_type == DeviceType.SNMP:
+async def _run_connectivity_probe(
+    host: str,
+    port: int,
+    device_type: DeviceType,
+    snmp_community_plain: str = "public",
+    snmp_version: str = "2c",
+) -> DeviceTestResult:
+    if device_type == DeviceType.SNMP:
         try:
             from pysnmp.hlapi.asyncio import (
                 get_cmd, SnmpEngine, CommunityData, UdpTransportTarget,
                 ContextData, ObjectType, ObjectIdentity
             )
-            community_str = decrypt_credential(device.snmp_community) or 'public'
-            mp_model = 0 if (device.snmp_version and '1' in device.snmp_version) else 1
-            community = CommunityData(community_str, mpModel=mp_model)
+            mp_model = 0 if (snmp_version and '1' in snmp_version) else 1
+            community = CommunityData(snmp_community_plain or 'public', mpModel=mp_model)
             target = await UdpTransportTarget.create((host, port), timeout=3.0, retries=1)
             err_ind, err_stat, err_idx, var_binds = await get_cmd(
                 SnmpEngine(), community, target, ContextData(),
@@ -123,20 +123,20 @@ async def test_device_connection(device: Device) -> DeviceTestResult:
             if err_ind or err_stat:
                 return DeviceTestResult(
                     success=False,
-                    message=f"SNMP tidak merespon: {err_ind or err_stat}. Periksa Community '{community_str}' dan Port {port}.",
-                    details={"host": host, "port": port, "device_type": device.device_type.value}
+                    message=f"SNMP tidak merespon: {err_ind or err_stat}. Periksa konfigurasi SNMP Community dan Port {port}.",
+                    details={"host": host, "port": port, "device_type": device_type.value}
                 )
             descr = var_binds[0][1].prettyPrint() if var_binds else "SNMP Respon OK"
             return DeviceTestResult(
                 success=True,
-                message=f"Koneksi SNMP berhasil! Teridentifikasi: {descr}",
-                details={"host": host, "port": port, "device_type": device.device_type.value, "sysDescr": descr}
+                message=f"Koneksi SNMP berhasil. Teridentifikasi: {descr}",
+                details={"host": host, "port": port, "device_type": device_type.value, "sysDescr": descr}
             )
         except Exception as e:
             return DeviceTestResult(
                 success=False,
                 message=f"Gagal koneksi SNMP ke {host}: {str(e)}",
-                details={"host": host, "port": port, "device_type": device.device_type.value}
+                details={"host": host, "port": port, "device_type": device_type.value}
             )
 
     def check_socket():
@@ -146,9 +146,8 @@ async def test_device_connection(device: Device) -> DeviceTestResult:
             result = s.connect_ex((host, port))
             s.close()
             if result == 0:
-                return True, f"Koneksi berhasil ke {host}:{port}"
-            else:
-                return False, f"Port {port} tertutup atau tidak merespon (Code: {result})"
+                return True, f"Koneksi TCP berhasil ke {host}:{port}"
+            return False, f"Port {port} tertutup atau tidak merespon (Code: {result})"
         except Exception as ex:
             return False, f"Gagal menghubungi {host}: {str(ex)}"
 
@@ -159,7 +158,31 @@ async def test_device_connection(device: Device) -> DeviceTestResult:
         details={
             "host": host,
             "port": port,
-            "device_type": device.device_type.value,
+            "device_type": device_type.value,
             "checked_at": datetime.now(timezone.utc).isoformat()
         }
+    )
+
+async def test_device_connection(device: Device) -> DeviceTestResult:
+    host = device.host
+    port = device.port or (8728 if device.device_type == DeviceType.MIKROTIK else 161)
+    community_str = decrypt_credential(device.snmp_community) or "public"
+    return await _run_connectivity_probe(
+        host=host,
+        port=port,
+        device_type=device.device_type,
+        snmp_community_plain=community_str,
+        snmp_version=device.snmp_version or "2c",
+    )
+
+async def test_adhoc_device_connection(test_in: DeviceTestRequest) -> DeviceTestResult:
+    device_type = test_in.device_type or DeviceType.MIKROTIK
+    port = test_in.port or (8728 if device_type == DeviceType.MIKROTIK else 161)
+    community_str = decrypt_credential(test_in.snmp_community) if test_in.snmp_community else "public"
+    return await _run_connectivity_probe(
+        host=test_in.host,
+        port=port,
+        device_type=device_type,
+        snmp_community_plain=community_str,
+        snmp_version=test_in.snmp_version or "2c",
     )

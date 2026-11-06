@@ -1,188 +1,181 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Trash2, Eye, Router, Server, Pencil, BellOff, AlertCircle, RefreshCw } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Search, Server, Trash2, Pencil } from 'lucide-react';
 import { Device } from '@/types/device';
-import { formatUptime, formatDate, cn } from '@/lib/utils';
-import { useDevices } from '@/hooks/useDevices';
-import { useAuthStore } from '@/stores/authStore';
-import { toast } from 'sonner';
-import EditDeviceModal from './EditDeviceModal';
+import { formatDate } from '@/lib/utils';
 
-interface DeviceListProps {
+export interface DeviceListProps {
   devices: Device[];
+  isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
+  onDelete?: (id: string) => void;
+  onEdit?: (device: Device) => void;
+  onSnooze?: (device: Device) => void;
+  isAdmin?: boolean;
 }
 
-export default function DeviceList({ devices }: DeviceListProps) {
-  const [search, setSearch] = useState('');
-  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+export const DeviceList: React.FC<DeviceListProps> = ({
+  devices,
+  isLoading,
+  isError,
+  onRetry,
+  onDelete,
+  onEdit,
+  onSnooze,
+  isAdmin = true,
+}) => {
   const navigate = useNavigate();
-  const { deleteDevice } = useDevices();
-  const { user } = useAuthStore();
-  const isAdmin = user?.role === 'admin';
 
-  const filteredDevices = (devices || []).filter((d) => {
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-slate-800/80 bg-slate-900 p-8 text-center text-sm text-slate-400 font-mono">
+        Memuat daftar inventaris perangkat jaringan...
+      </div>
+    );
+  }
 
-    const name = d.name?.toLowerCase() || '';
-    const host = (d.host || d.ip_address || '').toLowerCase();
-    const group = (d.group || '').toLowerCase();
-    const q = search.toLowerCase();
-    return name.includes(q) || host.includes(q) || group.includes(q);
-  });
-
-  const handleDelete = (e: React.MouseEvent, id: string | number, name: string) => {
-    e.stopPropagation();
-    if (confirm(`Yakin ingin menghapus perangkat "${name}" dari monitoring?`)) {
-      deleteDevice(id);
-      toast.success(`Perangkat ${name} berhasil dihapus.`);
-    }
-  };
+  if (isError) {
+    return (
+      <div className="rounded-xl border border-rose-500/30 bg-slate-900 p-8 text-center space-y-3">
+        <AlertCircle className="h-8 w-8 text-rose-400 mx-auto" />
+        <p className="text-sm text-slate-200 font-semibold">Gagal Memuat Daftar Perangkat</p>
+        <p className="text-xs text-slate-400">Terjadi kendala saat menghubungi API inventaris perangkat.</p>
+        {onRetry && (
+          <Button
+            size="sm"
+            onClick={onRetry}
+            className="min-h-[44px] bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold"
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Coba Lagi
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 max-w-md relative">
-        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-        <Input 
-          placeholder="Cari perangkat berdasarkan nama, IP, atau grup..." 
-          className="pl-9 bg-slate-900 border-slate-800 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 backdrop-blur-xl overflow-hidden">
-        <Table>
-          <TableHeader className="bg-slate-950/60 border-b border-slate-800">
-            <TableRow>
-              <TableHead className="w-16 text-center text-xs text-slate-400">Status</TableHead>
-              <TableHead className="text-xs text-slate-400">Nama Perangkat</TableHead>
-              <TableHead className="text-xs text-slate-400">Host / IP</TableHead>
-              <TableHead className="text-xs text-slate-400">Protokol</TableHead>
-              <TableHead className="text-xs text-slate-400">Grup / Lokasi</TableHead>
-              <TableHead className="text-xs text-slate-400">Interval</TableHead>
-              <TableHead className="text-xs text-slate-400 text-right">Aksi</TableHead>
+    <div className="rounded-xl border border-slate-800/80 bg-slate-900 overflow-hidden">
+      <Table>
+        <TableHeader className="bg-slate-950/60">
+          <TableRow className="border-slate-800 hover:bg-transparent">
+            <TableHead className="text-slate-400">Perangkat</TableHead>
+            <TableHead className="text-slate-400">Host / IP</TableHead>
+            <TableHead className="text-slate-400">Protokol</TableHead>
+            <TableHead className="text-slate-400">Status</TableHead>
+            <TableHead className="text-slate-400">Terakhir Terlihat</TableHead>
+            <TableHead className="text-right text-slate-400">Aksi</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {devices.length === 0 ? (
+            <TableRow className="border-slate-800">
+              <TableCell colSpan={6} className="text-center py-10 text-slate-400">
+                Belum ada perangkat yang dikonfigurasi. Klik "Tambah Perangkat" untuk memulai pemantauan.
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredDevices.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-slate-400">
-                  <Server className="h-8 w-8 mx-auto text-slate-600 mb-2" />
-                  <p className="text-sm font-medium">Tidak ada perangkat yang cocok.</p>
-                  <p className="text-xs text-slate-500 mt-0.5">Tambahkan perangkat baru menggunakan tombol di atas.</p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredDevices.map((device) => {
-                const host = device.host || device.ip_address || '127.0.0.1';
-                const statusStr = String(device.status || 'ONLINE').toUpperCase();
-                const isOnline = statusStr === 'ONLINE';
-                const isWarning = statusStr === 'WARNING';
+          ) : (
+            devices.map((device) => {
+              const status = device.status?.toUpperCase();
+              const isOnline = status === 'ONLINE';
+              const devType = (device.device_type || device.type || 'SNMP').toUpperCase();
 
-                return (
-                  <TableRow 
-                    key={device.id} 
-                    className="cursor-pointer hover:bg-slate-800/40 border-b border-slate-800/80 transition-colors group"
-                    onClick={() => navigate(`/devices/${device.id}`)}
-                  >
-                    <TableCell className="text-center">
-                      <div className={cn(
-                        "mx-auto h-2.5 w-2.5 rounded-full",
-                        isOnline ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 
-                        isWarning ? 'bg-amber-500' : 'bg-red-500'
-                      )} />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="font-semibold text-xs sm:text-sm text-slate-100 group-hover:text-cyan-400 transition-colors">
-                          {device.name}
-                        </div>
-                        {device.is_snoozed && (
-                          <Badge variant="outline" className="text-[9px] uppercase font-mono text-amber-400 border-amber-500/40 bg-amber-500/10 py-0 px-1.5">
-                            MAINTENANCE
-                          </Badge>
-                        )}
+              return (
+                <TableRow key={device.id} className="border-slate-800/60 hover:bg-slate-800/40">
+                  <TableCell className="font-medium text-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-slate-800 text-cyan-400">
+                        {devType === 'MIKROTIK' ? <Router className="h-4 w-4" /> : <Server className="h-4 w-4" />}
                       </div>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        Port: {device.port || (device.device_type === 'MIKROTIK' ? 8728 : 161)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-slate-300">
-                      {host}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="uppercase text-[10px] border-slate-700 bg-slate-950 font-mono text-cyan-400">
-                        {device.device_type || device.type || 'MIKROTIK'}
+                      <div>
+                        <span className="block font-semibold">{device.name}</span>
+                        <span className="text-[11px] text-slate-400">{device.location || 'Jaringan Utama'}</span>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-slate-300">
+                    {device.host || device.ip_address}:{device.port || (devType === 'MIKROTIK' ? 8728 : 161)}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                      {devType}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant={isOnline ? 'success' : status === 'WARNING' ? 'warning' : 'destructive'}>
+                        {device.status}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-400">
-                      <div>{device.group || 'Default Group'}</div>
-                      <div className="text-[10px] text-slate-500">{device.location || '-'}</div>
-                    </TableCell>
-                    <TableCell className="text-xs font-mono text-slate-400">
-                      {device.poll_interval || 30}s
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/devices/${device.id}`);
-                          }}
-                          className="h-7 px-2 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 font-medium"
+                      {device.is_snoozed && (
+                        <Badge
+                          className="bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono text-[10px] px-1.5 py-0"
+                          title={device.snooze_reason || 'Maintenance Mode'}
                         >
-                          Detail
-                        </Button>
-                        {isAdmin && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingDevice(device);
-                                setIsEditModalOpen(true);
-                              }}
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10"
-                              title="Edit Perangkat"
-                              aria-label={`Edit ${device.name}`}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={(e) => handleDelete(e, device.id, device.name)}
-                              className="h-7 w-7 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
-                              title="Hapus Perangkat"
-                              aria-label={`Hapus ${device.name}`}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      <EditDeviceModal
-        device={editingDevice}
-        open={isEditModalOpen}
-        onOpenChange={setIsEditModalOpen}
-      />
+                          <BellOff className="h-3 w-3 mr-1" /> SNOOZED
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-slate-400 font-mono">{formatDate(device.last_seen)}</TableCell>
+                  <TableCell className="text-right space-x-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => navigate(`/devices/${device.id}`)}
+                      aria-label={`Lihat detail ${device.name}`}
+                      className="min-h-[40px] min-w-[40px] text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    {isAdmin && onSnooze && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onSnooze(device)}
+                        aria-label={`Atur snooze ${device.name}`}
+                        className={`min-h-[40px] min-w-[40px] ${
+                          device.is_snoozed
+                            ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
+                            : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
+                        }`}
+                      >
+                        <BellOff className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {isAdmin && onEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onEdit(device)}
+                        aria-label={`Edit ${device.name}`}
+                        className="min-h-[40px] min-w-[40px] text-slate-400 hover:text-amber-400 hover:bg-amber-500/10"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {isAdmin && onDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(String(device.id))}
+                        aria-label={`Hapus ${device.name}`}
+                        className="min-h-[40px] min-w-[40px] text-slate-400 hover:text-rose-400 hover:bg-rose-500/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
     </div>
   );
-}
+};
+
+export default DeviceList;

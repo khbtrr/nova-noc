@@ -1,168 +1,98 @@
 import React from 'react';
-import { Device } from '@/types/device';
+import { Router, Server, Cpu, HardDrive, Clock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
-import { useQuery } from '@tanstack/react-query';
-import { metricsApi } from '@/services/metricsApi';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Device } from '@/types/device';
+import { formatUptime } from '@/lib/utils';
+import { useDeviceMetrics } from '@/hooks/useMetrics';
 
 interface DeviceCardProps {
   device: Device;
+  onClick?: (id: string) => void;
 }
 
-const CircularGauge = ({ value, color, label }: { value?: number | null; color: string; label: string }) => {
-  const radius = 18;
-  const circumference = radius * 2 * Math.PI;
-  const hasValue = value != null;
-  const clamped = hasValue ? Math.min(100, Math.max(0, value)) : 0;
-  const offset = hasValue ? circumference - (clamped / 100) * circumference : circumference;
-  
-  return (
-    <div className="flex flex-col items-center">
-      <div className="relative flex items-center justify-center">
-        <svg className="h-12 w-12 transform -rotate-90">
-          <circle cx="24" cy="24" r={radius} className="stroke-slate-800" strokeWidth="3" fill="transparent" />
-          <circle 
-            cx="24" cy="24" r={radius} 
-            className={cn("transition-all duration-700 ease-in-out", hasValue ? color : "stroke-slate-700")} 
-            strokeWidth="3" fill="transparent"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-          />
-        </svg>
-        <span className="absolute text-[10px] font-bold text-slate-100">
-          {hasValue ? `${Math.round(clamped)}%` : '-'}
-        </span>
-      </div>
-      <span className="text-[10px] font-medium text-slate-400 mt-1">{label}</span>
-    </div>
-  );
-};
+export const DeviceCard: React.FC<DeviceCardProps> = ({ device, onClick }) => {
+  const { metrics } = useDeviceMetrics(device.id);
+  const statusUpper = device.status?.toUpperCase() || 'OFFLINE';
+  const isOnline = statusUpper === 'ONLINE';
+  const isWarning = statusUpper === 'WARNING';
 
-export default function DeviceCard({ device }: DeviceCardProps) {
-  const navigate = useNavigate();
-  const host = device.host || device.ip_address || '127.0.0.1';
-  const devType = device.device_type || device.type || 'MIKROTIK';
-  const statusStr = String(device.status || 'ONLINE').toUpperCase();
+  const cpu = metrics?.cpu_load ?? device.cpu_load ?? 0;
+  const mem = metrics?.memory_usage ?? device.memory_usage ?? 0;
+  const uptimeVal = metrics?.uptime ?? device.uptime ?? 0;
+  const devType = (device.device_type || device.type || 'SNMP').toUpperCase();
+  const hostIp = device.host || device.ip_address || '0.0.0.0';
 
-  const { data: metrics } = useQuery({
-    queryKey: ['metrics', device.id],
-    queryFn: () => metricsApi.getMetrics(String(device.id)),
-    refetchInterval: 15000,
-  });
-
-  const cpu = metrics?.cpu_load ?? device.cpu_load;
-  const mem = metrics?.memory_usage ?? device.memory_usage;
-  const uptime = metrics?.uptime ?? device.uptime ?? '-';
-
-  const latency = metrics?.latency_ms;
-  const packetLoss = metrics?.packet_loss;
-  const wanLatency = metrics?.wan_latency_ms;
-
-  const isOnline = statusStr === 'ONLINE';
-  const isWarning = statusStr === 'WARNING';
-  const isOffline = statusStr === 'OFFLINE';
-
-  const getLatencyColor = (val?: number) => {
-    if (val == null) return 'text-slate-400';
-    if (val < 30) return 'text-emerald-400';
-    if (val < 80) return 'text-amber-400';
-    return 'text-red-400';
-  };
-
-  const getLossColor = (loss?: number) => {
-    if (loss == null) return 'text-slate-400';
-    if (loss === 0) return 'text-emerald-400';
-    if (loss < 5) return 'text-amber-400';
-    return 'text-red-400';
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick?.(String(device.id));
+    }
   };
 
   return (
-    <Card 
+    <Card
       role="button"
       tabIndex={0}
-      className="border-slate-800 bg-slate-900/50 backdrop-blur-xl hover:border-cyan-500/50 cursor-pointer transition-all hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-      onClick={() => navigate(`/devices/${device.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          navigate(`/devices/${device.id}`);
-        }
-      }}
+      onClick={() => onClick?.(String(device.id))}
+      onKeyDown={handleKeyDown}
+      className="bg-slate-900 border-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
     >
-      <CardContent className="p-4">
-        <div className="flex justify-between items-start mb-3">
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="relative flex h-2.5 w-2.5">
-                {isOnline && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                )}
-                <span className={cn(
-                  "relative inline-flex rounded-full h-2.5 w-2.5",
-                  isOnline ? "bg-emerald-500" : (isWarning ? "bg-amber-500" : "bg-red-500")
-                )}></span>
-              </span>
-              <h4 className="font-semibold text-sm text-slate-100 truncate max-w-[140px]">{device.name}</h4>
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-slate-800/80 border border-slate-700 text-cyan-400 group-hover:bg-cyan-500/10 group-hover:border-cyan-500/30 transition-colors">
+              {devType === 'MIKROTIK' ? <Router className="h-5 w-5" /> : <Server className="h-5 w-5" />}
             </div>
-            <p className="text-xs font-mono text-slate-400 mt-0.5">{host}</p>
+            <div>
+              <h4 className="font-semibold text-slate-100 group-hover:text-cyan-400 transition-colors">{device.name}</h4>
+              <p className="text-xs font-mono text-slate-400">{hostIp}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            {device.is_snoozed && (
-              <span className="text-[9px] font-semibold bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded uppercase border border-amber-500/30">
-                SNOOZED
-              </span>
-            )}
-            <span className="text-[10px] font-semibold bg-slate-800 text-cyan-400 px-2 py-0.5 rounded uppercase border border-slate-700">
-              {String(devType)}
+
+          <Badge variant={isOnline ? 'success' : isWarning ? 'warning' : 'destructive'} className="uppercase text-[10px]">
+            <span className="relative flex h-1.5 w-1.5 mr-1.5">
+              <span
+                className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                  isOnline ? 'bg-emerald-500' : isWarning ? 'bg-amber-500' : 'bg-rose-500'
+                }`}
+              />
             </span>
-          </div>
-        </div>
-        
-        <div className="flex justify-around items-center my-3 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
-          <CircularGauge 
-            value={cpu} 
-            color={cpu && cpu > 80 ? 'stroke-red-500' : 'stroke-cyan-400'} 
-            label="CPU Load" 
-          />
-          <div className="h-8 w-[1px] bg-slate-800"></div>
-          <CircularGauge 
-            value={mem} 
-            color={mem && mem > 85 ? 'stroke-red-500' : 'stroke-purple-400'} 
-            label="RAM Usage" 
-          />
+            {device.status}
+          </Badge>
         </div>
 
-        {/* Latency & Link Quality SLA Bar */}
-        <div className="flex items-center justify-between bg-slate-950/40 px-2.5 py-1.5 rounded-lg border border-slate-800/60 text-xs mb-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-400">Ping RTT:</span>
-            <span className={cn("font-mono font-medium text-[11px]", getLatencyColor(latency))}>
-              {latency != null ? `${latency.toFixed(1)} ms` : '-'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-400">Loss:</span>
-            <span className={cn("font-mono font-medium text-[11px]", getLossColor(packetLoss))}>
-              {packetLoss != null ? `${packetLoss.toFixed(1)}%` : '0%'}
-            </span>
-          </div>
-          {wanLatency != null && (
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-slate-400">WAN:</span>
-              <span className={cn("font-mono text-[10px]", getLatencyColor(wanLatency))}>
-                {wanLatency.toFixed(0)}ms
+        <div className="space-y-3 pt-1">
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <Cpu className="h-3.5 w-3.5 text-cyan-400" /> Beban CPU
               </span>
+              <span className="font-mono text-slate-200">{cpu}%</span>
             </div>
-          )}
+            <Progress value={cpu} indicatorClassName={cpu > 80 ? 'bg-rose-500' : cpu > 60 ? 'bg-amber-500' : 'bg-cyan-500'} />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <HardDrive className="h-3.5 w-3.5 text-sky-400" /> Memori
+              </span>
+              <span className="font-mono text-slate-200">{mem}%</span>
+            </div>
+            <Progress value={mem} indicatorClassName={mem > 85 ? 'bg-rose-500' : 'bg-sky-500'} />
+          </div>
         </div>
-        
-        <div className="flex justify-between items-center text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
-          <span className="truncate">Up: {String(uptime)}</span>
-          <span className="text-cyan-400 hover:underline">Detail</span>
+
+        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3 text-slate-400" />
+            {typeof uptimeVal === 'number' ? formatUptime(uptimeVal) : uptimeVal || 'N/A'}
+          </span>
+          <span className="uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">{devType}</span>
         </div>
       </CardContent>
     </Card>
   );
-}
+};

@@ -1,48 +1,67 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import DashboardLayout from '@/components/layout/DashboardLayout';
-import LoginPage from '@/pages/LoginPage';
-import DashboardPage from '@/pages/DashboardPage';
-import DevicesPage from '@/pages/DevicesPage';
-import DeviceDetailPage from '@/pages/DeviceDetailPage';
-import AlertsPage from '@/pages/AlertsPage';
-import AIAssistantPage from '@/pages/AIAssistantPage';
-import SettingsPage from '@/pages/SettingsPage';
-import TopologyPage from '@/pages/TopologyPage';
-import SyslogPage from '@/pages/SyslogPage';
-import TrafficFlowPage from '@/pages/TrafficFlowPage';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'sonner';
+
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { LoginPage } from '@/pages/LoginPage';
+import { DashboardPage } from '@/pages/DashboardPage';
+import { DevicesPage } from '@/pages/DevicesPage';
+import { DeviceDetailPage } from '@/pages/DeviceDetailPage';
+import { AlertsPage } from '@/pages/AlertsPage';
+import { AIAssistantPage } from '@/pages/AIAssistantPage';
+import { SettingsPage } from '@/pages/SettingsPage';
+import { TopologyPage } from '@/pages/TopologyPage';
+import { SyslogPage } from '@/pages/SyslogPage';
+import { TrafficFlowPage } from '@/pages/TrafficFlowPage';
 import { useAuthStore } from '@/stores/authStore';
 
-// Simple protected route wrapper
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuthStore();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 };
 
-function App() {
+export function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <DashboardLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<DashboardPage />} />
-        <Route path="devices" element={<DevicesPage />} />
-        <Route path="devices/:id" element={<DeviceDetailPage />} />
-        <Route path="topology" element={<TopologyPage />} />
-        <Route path="traffic-flow" element={<TrafficFlowPage />} />
-        <Route path="alerts" element={<AlertsPage />} />
-        <Route path="syslog" element={<SyslogPage />} />
-        <Route path="ai" element={<AIAssistantPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<DashboardPage />} />
+            <Route path="devices" element={<DevicesPage />} />
+            <Route path="devices/:id" element={<DeviceDetailPage />} />
+            <Route path="topology" element={<TopologyPage />} />
+            <Route path="flow" element={<TrafficFlowPage />} />
+            <Route path="syslog" element={<SyslogPage />} />
+            <Route path="alerts" element={<AlertsPage />} />
+            <Route path="ai" element={<AIAssistantPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+      <Toaster theme="dark" position="bottom-right" richColors />
+    </QueryClientProvider>
   );
 }
 

@@ -4,6 +4,21 @@ import { useAlertStore } from '@/stores/alertStore';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 
+function resolveWebSocketBaseUrl(): string {
+  const configuredApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+  if (configuredApiUrl && (configuredApiUrl.startsWith('http://') || configuredApiUrl.startsWith('https://'))) {
+    try {
+      const parsed = new URL(configuredApiUrl);
+      const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${wsProto}//${parsed.host}`;
+    } catch {
+      // Fallback to window.location
+    }
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}`;
+}
+
 export const useWebSocket = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -20,13 +35,10 @@ export const useWebSocket = () => {
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname;
-    // Default to port 8000 for backend if running on vite 3000
-    const port = window.location.port === '3000' ? '8000' : (window.location.port || '8000');
-    const wsUrl = `${protocol}//${host}:${port}/ws?token=${encodeURIComponent(token)}`;
+    const wsBase = resolveWebSocketBaseUrl();
+    const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 
-    let reconnectTimer: NodeJS.Timeout;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
     let isCleanedUp = false;
 
     const connect = () => {
@@ -45,7 +57,6 @@ export const useWebSocket = () => {
             const { event: eventType, data } = message;
 
             if (eventType === 'metrics_update') {
-              // Invalidate specific device metrics query so charts live update
               queryClient.invalidateQueries({ queryKey: ['metrics', data.device_id] });
               queryClient.invalidateQueries({ queryKey: ['metrics', String(data.device_id)] });
               queryClient.invalidateQueries({ queryKey: ['metrics-history', data.device_id] });
@@ -78,7 +89,7 @@ export const useWebSocket = () => {
               }
             }
           } catch {
-            // Non-JSON message
+            // Ignore non-JSON frame
           }
         };
 
@@ -109,8 +120,7 @@ export const useWebSocket = () => {
       }
       setIsConnected(false);
     };
-  }, [token, isAuthenticated, queryClient, addAlert]);
+  }, [token, isAuthenticated, queryClient, addAlert, resolveAlert]);
 
   return { isConnected };
 };
-
