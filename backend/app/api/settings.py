@@ -25,6 +25,7 @@ async def get_system_settings(current_user = Depends(get_current_user)):
         "default_poll_interval": settings.DEFAULT_POLL_INTERVAL,
         "telegram_configured": bool(settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID),
         "gemini_configured": bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your-gemini-api-key-here"),
+        "gemini_model": settings.GEMINI_MODEL,
         "telegram_chat_id": settings.TELEGRAM_CHAT_ID or "",
         "debug_mode": settings.DEBUG,
         "wan_profile": {

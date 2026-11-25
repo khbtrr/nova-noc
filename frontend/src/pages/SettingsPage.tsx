@@ -166,7 +166,7 @@ export const SettingsPage: React.FC = () => {
               <div className="space-y-2">
                 <Label className="text-slate-300">Model Aktif</Label>
                 <Input
-                  value="gemini-2.5-flash"
+                  value={settings?.gemini_model || '-'}
                   disabled
                   className="bg-slate-950/60 border-slate-800 text-slate-300 font-mono min-h-[44px]"
                 />

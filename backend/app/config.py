@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 480
 
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash"
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
     TELEGRAM_ADMIN_IDS: str = ""

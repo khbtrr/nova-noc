@@ -75,8 +75,8 @@ async def poll_device(device_id: int):
                     })
                     await manager.broadcast(ws_payload)
                 else:
-                    # Failed collection
-                    device.status = DeviceStatus.WARNING
+                    # Collector could not reach the device (API/SNMP and ICMP failed)
+                    device.status = DeviceStatus.OFFLINE
                     ws_payload = json.dumps({
                         "event": "device_status",
                         "data": {
@@ -97,7 +97,11 @@ async def update_device_job(device_id: int, interval: int = 30):
         seconds=max(interval, 5),
         args=[device_id],
         id=job_id,
-        replace_existing=True
+        replace_existing=True,
+        # Poll right away instead of waiting a full interval after add/restart
+        next_run_time=datetime.now(timezone.utc),
+        max_instances=1,
+        coalesce=True,
     )
 
 def remove_device_job(device_id: int):

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, field_serializer
 from datetime import datetime
 from typing import Optional
 from app.models.user import UserRole
@@ -48,6 +48,11 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
     created_at: datetime
+
+    @field_serializer("role")
+    def serialize_role(self, role: UserRole) -> str:
+        # Frontend compares against lowercase 'admin' / 'viewer'
+        return role.value.lower()
 
     class Config:
         from_attributes = True

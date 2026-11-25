@@ -27,7 +27,8 @@ async def create_device(db: AsyncSession, device_in: DeviceCreate) -> Device:
     if device_data.get("snmp_community"):
         device_data["snmp_community"] = encrypt_credential(device_data["snmp_community"])
     device = Device(**device_data)
-    device.status = DeviceStatus.ONLINE
+    # Status stays OFFLINE until the first successful poll
+    device.status = DeviceStatus.OFFLINE
     db.add(device)
     await db.commit()
     await db.refresh(device)

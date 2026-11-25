@@ -57,9 +57,10 @@ export const useWebSocket = () => {
             const { event: eventType, data } = message;
 
             if (eventType === 'metrics_update') {
-              queryClient.invalidateQueries({ queryKey: ['metrics', data.device_id] });
               queryClient.invalidateQueries({ queryKey: ['metrics', String(data.device_id)] });
-              queryClient.invalidateQueries({ queryKey: ['metrics-history', data.device_id] });
+              queryClient.invalidateQueries({ queryKey: ['metricsHistory', String(data.device_id)] });
+              queryClient.invalidateQueries({ queryKey: ['deviceInterfaces', String(data.device_id)] });
+              queryClient.invalidateQueries({ queryKey: ['devices'] });
             } else if (eventType === 'alert_triggered') {
               addAlert(data);
               toast.error(`[ALERT] ${data.device_name}: ${data.message}`);
@@ -75,9 +76,9 @@ export const useWebSocket = () => {
               queryClient.invalidateQueries({ queryKey: ['devices'] });
             } else if (eventType === 'traffic_anomaly') {
               toast.warning(`[ANOMALI] ${data.device_name}: ${data.type}`);
-              queryClient.invalidateQueries({ queryKey: ['active-anomalies'] });
+              queryClient.invalidateQueries({ queryKey: ['activeAnomalies'] });
             } else if (eventType === 'traffic_anomaly_resolved') {
-              queryClient.invalidateQueries({ queryKey: ['active-anomalies'] });
+              queryClient.invalidateQueries({ queryKey: ['activeAnomalies'] });
             } else if (eventType === 'syslog_event') {
               queryClient.invalidateQueries({ queryKey: ['syslog'] });
               queryClient.invalidateQueries({ queryKey: ['syslog-stats'] });

@@ -17,6 +17,7 @@ export interface SystemSettingsData {
   default_poll_interval: number;
   telegram_configured: bool | boolean;
   gemini_configured: bool | boolean;
+  gemini_model?: string;
   telegram_chat_id: string;
   debug_mode: boolean;
   wan_profile?: WanProfileConfig;

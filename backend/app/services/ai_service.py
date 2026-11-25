@@ -18,10 +18,10 @@ Tugas Anda:
 def _get_candidate_models() -> List[str]:
     models = [
         settings.GEMINI_MODEL,
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
+        # gemini-2.x / 1.5 return 404 for this API key; 3.8-flash currently times out
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",
     ]
     seen = set()
     ordered = []
@@ -59,7 +59,7 @@ def _generate_with_gemini(prompt: str, system_instruction: str = SYSTEM_PROMPT) 
     for model_name in _get_candidate_models():
         try:
             m = genai.GenerativeModel(model_name, system_instruction=system_instruction)
-            response = m.generate_content(prompt)
+            response = m.generate_content(prompt, request_options={"timeout": 30})
             if response and response.text:
                 return response.text
         except Exception as e:
